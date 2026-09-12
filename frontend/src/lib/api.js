@@ -45,10 +45,18 @@ export function login({ email, password }) {
   })
 }
 
-export function register({ email, password, rol }) {
+export function register({ email, password, nombre, apellidos, telefono, tipoDocumento, numeroDocumento }) {
   return request("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, rol }),
+    body: JSON.stringify({
+      email,
+      password,
+      nombre,
+      apellidos,
+      telefono,
+      tipo_documento: tipoDocumento,
+      numero_documento: numeroDocumento,
+    }),
   })
 }
 

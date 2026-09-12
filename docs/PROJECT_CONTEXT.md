@@ -30,7 +30,9 @@ lectura del sensor de gas.
 
 ## Modelo de datos (entidades)
 - **Estacion**: agrupa puntos de control de una misma mina.
-- **Usuario**: email (Google), rol.
+- **Usuario**: email (Google), rol, y datos personales completos
+  (nombre, apellidos, telefono, tipo_documento [CC/CE/PASAPORTE],
+  numero_documento único) — obligatorios desde el registro.
 - **PuntoControl**: pertenece a una Estacion, coordenadas cX, cY, cZ.
 - **ModeloML**: registra qué archivo .joblib/scaler está activo.
 - **Telemetria**: lectura completa (crudo, escalado, error predicho,
@@ -94,6 +96,14 @@ pertenece.
   configuración global) - tal como ya está descrito en la sección
   "Roles del sistema". Esta jerarquía se aplicará endpoint por
   endpoint cuando se implemente la fase de protección de rutas.
+- DECISIÓN (2026-09-12): el registro público (`POST /api/auth/register`)
+  siempre crea usuarios con rol='trabajador' fijo en el backend; el
+  cliente ya no puede enviar ni influir en el rol (el campo `rol` se
+  eliminó del schema `UsuarioRegistro`). Cambiar el rol de un usuario
+  después de creado requerirá un endpoint de administración propio,
+  protegido por rol, que se construirá en la fase de protección de
+  rutas — no existe todavía ninguna forma de crear un Supervisor o
+  Administrador vía API.
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.

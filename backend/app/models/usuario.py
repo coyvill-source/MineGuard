@@ -24,11 +24,24 @@ class MetodoRegistro(str, enum.Enum):
     PASSWORD = "password"
 
 
+class TipoDocumento(str, enum.Enum):
+    CC = "CC"
+    CE = "CE"
+    PASAPORTE = "PASAPORTE"
+
+
 class Usuario(Base):
     __tablename__ = "usuarios"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    nombre: Mapped[str] = mapped_column(String(150), nullable=False)
+    apellidos: Mapped[str] = mapped_column(String(150), nullable=False)
+    telefono: Mapped[str] = mapped_column(String(30), nullable=False)
+    tipo_documento: Mapped[TipoDocumento] = mapped_column(
+        Enum(TipoDocumento, name="tipo_documento", native_enum=True), nullable=False
+    )
+    numero_documento: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     rol: Mapped[RolUsuario] = mapped_column(
         Enum(RolUsuario, name="rol_usuario", native_enum=True), nullable=False
     )

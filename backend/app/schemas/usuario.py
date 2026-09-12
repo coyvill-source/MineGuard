@@ -1,12 +1,16 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.usuario import RolUsuario
+from app.models.usuario import RolUsuario, TipoDocumento
 
 
 class UsuarioRegistro(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
-    rol: RolUsuario = RolUsuario.TRABAJADOR
+    nombre: str = Field(min_length=1)
+    apellidos: str = Field(min_length=1)
+    telefono: str = Field(min_length=1)
+    tipo_documento: TipoDocumento
+    numero_documento: str = Field(min_length=1)
 
 
 class UsuarioLogin(BaseModel):
@@ -19,6 +23,11 @@ class UsuarioRespuesta(BaseModel):
 
     id: int
     email: EmailStr
+    nombre: str
+    apellidos: str
+    telefono: str
+    tipo_documento: TipoDocumento
+    numero_documento: str
     rol: RolUsuario
 
 

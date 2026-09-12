@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.models.password_reset_token import PasswordResetToken
-from app.models.usuario import MetodoRegistro, Usuario
+from app.models.usuario import MetodoRegistro, RolUsuario, Usuario
 from app.schemas.usuario import (
     MensajeRespuesta,
     RestablecerPassword,
@@ -60,9 +60,24 @@ async def register(datos: UsuarioRegistro, db: Annotated[AsyncSession, Depends(g
     if existente is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El email ya esta registrado")
 
+    documento_existente = await db.scalar(
+        select(Usuario).where(Usuario.numero_documento == datos.numero_documento)
+    )
+    if documento_existente is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="El numero de documento ya esta registrado"
+        )
+
     usuario = Usuario(
         email=datos.email,
-        rol=datos.rol,
+        nombre=datos.nombre,
+        apellidos=datos.apellidos,
+        telefono=datos.telefono,
+        tipo_documento=datos.tipo_documento,
+        numero_documento=datos.numero_documento,
+        # El rol nunca se acepta del cliente por seguridad: todo registro publico
+        # entra como trabajador (ver decision en docs/PROJECT_CONTEXT.md).
+        rol=RolUsuario.TRABAJADOR,
         password_hash=hash_password(datos.password),
         metodo_registro=MetodoRegistro.PASSWORD,
     )
