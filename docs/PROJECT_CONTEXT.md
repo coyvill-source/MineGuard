@@ -66,8 +66,9 @@ pertenece.
 - No hay unidad de medida ni límites numéricos confirmados para el
   gas (valores de referencia observados: ~1.923 a ~20.475, unidad sin
   confirmar).
-- Por ahora solo existe una Estación (Chicamocha, 8 puntos de control
-  0-7), pero el modelo de datos debe soportar más de una a futuro.
+- Por ahora solo existe una Estación (Chicamocha, 7 puntos de control
+  (0-6), confirmado con datos reales del archivo coordenadas.xlsx),
+  pero el modelo de datos debe soportar más de una a futuro.
 - Periodicidad exacta de guardado del histórico: aún no definida
   (usar valor configurable, no fijo).
 
@@ -89,68 +90,18 @@ Google OAuth como decía el manual v1.3):
 En ambos casos, el usuario debe existir en la tabla Usuario con un rol
 asignado para poder acceder (igual que en el flujo original de SSO).
 El JWT emitido es el mismo sin importar el método de login usado.
-EOFcd /c/Users/li_ma/MineGuard
-cat >> docs/PROJECT_CONTEXT.md << 'EOF'
 
-## Actualización — Autenticación (v1.4)
-El sistema debe soportar DOS métodos de inicio de sesión (no solo
-Google OAuth como decía el manual v1.3):
-1. **Google OAuth 2.0** (SSO).
-2. **Correo y contraseña** (registro/login tradicional), con hash
-   seguro de contraseña (ej. bcrypt/argon2).
+## Actualizacion - Dato confirmado (coordenadas.xlsx real)
+El archivo coordenadas.xlsx entregado tiene 7 puntos de control (CONTROL 0 a 6), no 8 como se asumio inicialmente en el manual v1.3. El seed de la Estacion Chicamocha se creo con estos 7 puntos reales. Pendiente confirmar con el equipo de mineria si falta un punto fisico o si el manual estaba desactualizado.
 
-En ambos casos, el usuario debe existir en la tabla Usuario con un rol
-asignado para poder acceder (igual que en el flujo original de SSO).
-El JWT emitido es el mismo sin importar el método de login usado.
-EOFcd /c/Users/li_ma/MineGuard
-cat >> docs/PROJECT_CONTEXT.md << 'EOF'
+## Regla de flujo de trabajo (git)
+Cada vez que Claude Code termine una tarea y el usuario confirme que
+funciona probándola, se hace commit INMEDIATAMENTE en la rama activa,
+antes de pedir el siguiente ajuste o cambiar de rama. Nunca dejar
+cambios sin commitear mientras se avanza a la siguiente fase.
 
-## Actualización — Autenticación (v1.4)
-El sistema debe soportar DOS métodos de inicio de sesión (no solo
-Google OAuth como decía el manual v1.3):
-1. **Google OAuth 2.0** (SSO).
-2. **Correo y contraseña** (registro/login tradicional), con hash
-   seguro de contraseña (ej. bcrypt/argon2).
-
-En ambos casos, el usuario debe existir en la tabla Usuario con un rol
-asignado para poder acceder (igual que en el flujo original de SSO).
-El JWT emitido es el mismo sin importar el método de login usado.
-EOFcd /c/Users/li_ma/MineGuard
-cat >> docs/PROJECT_CONTEXT.md << 'EOF'
-
-## Actualización — Autenticación (v1.4)
-El sistema debe soportar DOS métodos de inicio de sesión (no solo
-Google OAuth como decía el manual v1.3):
-1. **Google OAuth 2.0** (SSO).
-2. **Correo y contraseña** (registro/login tradicional), con hash
-   seguro de contraseña (ej. bcrypt/argon2).
-
-En ambos casos, el usuario debe existir en la tabla Usuario con un rol
-asignado para poder acceder (igual que en el flujo original de SSO).
-El JWT emitido es el mismo sin importar el método de login usado.
-EOFcd /c/Users/li_ma/MineGuard
-cat >> docs/PROJECT_CONTEXT.md << 'EOF'
-
-## Actualización — Autenticación (v1.4)
-El sistema debe soportar DOS métodos de inicio de sesión (no solo
-Google OAuth como decía el manual v1.3):
-1. **Google OAuth 2.0** (SSO).
-2. **Correo y contraseña** (registro/login tradicional), con hash
-   seguro de contraseña (ej. bcrypt/argon2).
-
-En ambos casos, el usuario debe existir en la tabla Usuario con un rol
-asignado para poder acceder (igual que en el flujo original de SSO).
-El JWT emitido es el mismo sin importar el método de login usado.
-EOFcd /c/Users/li_ma/MineGuard
-cat >> docs/PROJECT_CONTEXT.md << 'EOF'
-
-## Actualización — Autenticación (v1.4)
-El sistema debe soportar DOS métodos de inicio de sesión (no solo
-Google OAuth como decía el manual v1.3):
-1. **Google OAuth 2.0** (SSO).
-2. **Correo y contraseña** (registro/login tradicional), con hash
-   seguro de contraseña (ej. bcrypt/argon2).
-
-En ambos casos, el usuario debe existir en la tabla Usuario con un rol
-asignado para poder acceder (igual que en el flujo original de SSO).
-El JWT emitido es el mismo sin importar el método de login usado.
+## Regla de edición de este archivo (PROJECT_CONTEXT.md)
+Este archivo se edita SIEMPRE usando la herramienta de edición de
+Claude Code, nunca con comandos bash tipo "cat >>" o heredocs pegados
+directamente en la terminal de Git Bash del usuario - eso ha causado
+duplicaciones y corrupción de contenido en el pasado.
