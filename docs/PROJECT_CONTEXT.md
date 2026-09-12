@@ -48,8 +48,8 @@ lectura del sensor de gas.
 3. El modelo predice el **error de lectura del gas**.
 4. Corrección final: `Gas Corregido = Gas Crudo (Ch4) ± Error Predicho`.
 5. El Gas Corregido se compara contra umbrales (verde/amarillo/rojo)
-   — **valores numéricos de los umbrales aún no definidos**, usar
-   placeholders configurables, nunca hardcodear.
+   — ver la decisión de umbrales en "Pendientes conocidos", deben
+   quedar configurables, nunca hardcodeados como constantes fijas.
 
 ## Ingesta de datos (3 modos intercambiables)
 1. **Archivo** (Excel/CSV): columnas Temp, Humed, Ch4, Bateria,
@@ -70,12 +70,17 @@ pertenece.
   una aproximación derivada localmente, no el scaler original de
   entrenamiento del modelo - deberá reemplazarse si el equipo de datos
   entrega el scaler real más adelante.
-- SIGUE PENDIENTE (sin resolver, bloqueante solo para el motor de
-  umbrales/semáforo): la unidad de medida y los valores numéricos
-  exactos de los umbrales verde/amarillo/rojo del gas (valores de
-  referencia observados: ~1.923 a ~20.475, unidad sin confirmar) -
-  debe confirmarse con el equipo de HSE/minería antes de implementar
-  esa parte específica.
+- DECISIÓN (2026-09-12): umbrales del gas metano (% CH4), basados en
+  el Reglamento de Seguridad Subterránea de Colombia (Decreto 1886):
+  - Verde (Óptimo): 0.0% a 0.9% CH4 - operación normal.
+  - Amarillo (Alerta): 1.0% a 1.4% CH4 - prohibido uso de explosivos,
+    ajustar ventilación; debe notificar al Supervisor HSE.
+  - Rojo (Crítico): >= 1.5% CH4 - riesgo de explosión; debe
+    desenergizar equipos, evacuar personal, y generar registro
+    indeleble en la bitácora de alertas.
+  Estos valores son configurables en el sistema (no hardcodeados como
+  constantes fijas en el código), pero estos son los valores por
+  defecto de fábrica.
 - Por ahora solo existe una Estación (Chicamocha, 7 puntos de control
   (0-6), confirmado con datos reales del archivo coordenadas.xlsx),
   pero el modelo de datos debe soportar más de una a futuro.
