@@ -105,3 +105,19 @@ Este archivo se edita SIEMPRE usando la herramienta de edición de
 Claude Code, nunca con comandos bash tipo "cat >>" o heredocs pegados
 directamente en la terminal de Git Bash del usuario - eso ha causado
 duplicaciones y corrupción de contenido en el pasado.
+
+## Estado de ramas y pendientes (actualizado 2026-09-12)
+- Rama activa de desarrollo: `feature/ingesta-datos`, con historial
+  propio (ya no apunta al mismo commit que `develop`; incluye el seed
+  de Chicamocha, el endpoint de ingesta, la migración de nulos y este
+  mismo archivo de contexto).
+- `feature/frontend-login` quedó congelada en el commit del login por
+  correo/contraseña (b15c372); el trabajo posterior (forgot-password,
+  frontend completo de login/registro/dashboard) se hizo directo sobre
+  `develop`. Decisión explícita ya tomada: se deja tal cual, como
+  referencia histórica de esa etapa — no se renombra ni se borra.
+- `backend/app/ml_models/modelo_prediccion.joblib` (el
+  RandomForestRegressor ya entrenado) está en el working tree sin
+  commitear, a propósito: se comiteará junto con el trabajo de
+  StandardScaler + inferencia (la próxima fase de ML), para que ese
+  commit tenga el contexto completo en vez de aparecer suelto.
