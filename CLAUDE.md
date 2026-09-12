@@ -31,6 +31,15 @@ Contexto de referencia rápida para las skills de Claude Code durante el desarro
 8. **Este archivo y `docs/PROJECT_CONTEXT.md` se editan siempre con la herramienta de
    edición de Claude Code**, nunca con `cat >>`/heredocs pegados en la terminal — eso ya
    causó duplicaciones de contenido en `PROJECT_CONTEXT.md`.
+9. **Conventional commits**: todo mensaje de commit debe seguir el formato conventional
+   commits (feat:, fix:, docs:, chore:, refactor:, test:), con un alcance breve y
+   descriptivo. Un commit = una unidad de trabajo coherente; nunca mezclar cambios de
+   dos features o fixes distintos en un mismo commit ni en una misma rama.
+10. **Actualizar docs/PROJECT_CONTEXT.md en el momento de la decisión**: cuando se tome
+    una decisión de diseño, se confirme un dato real (ej. estructura de un archivo
+    fuente), o se cierre un punto ambiguo, se actualiza docs/PROJECT_CONTEXT.md de
+    inmediato, en el mismo momento - nunca se acumulan actualizaciones pendientes para
+    hacerlas al final.
 
 ## Stack tecnológico
 - Backend: Python + FastAPI (async) + SQLAlchemy 2.0 + Alembic.

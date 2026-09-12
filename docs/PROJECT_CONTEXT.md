@@ -61,16 +61,34 @@ Toda lectura, sin importar el modo, debe declarar a qué PuntoControl
 pertenece.
 
 ## Pendientes conocidos (no resolver por tu cuenta, preguntar)
-- Falta el objeto StandardScaler asociado al modelo (.joblib solo trae
-  el RandomForestRegressor).
-- No hay unidad de medida ni límites numéricos confirmados para el
-  gas (valores de referencia observados: ~1.923 a ~20.475, unidad sin
-  confirmar).
+- DECISIÓN (2026-09-12): el StandardScaler no fue entregado por el
+  equipo de datos. Se re-derivará internamente ajustando un
+  StandardScaler sobre las columnas Temp, Humed, Bateria del archivo
+  real backend/app/datos_prueba/Datos_despliegue.xlsx, como
+  aproximación TEMPORAL. Debe quedar explícitamente marcado en el
+  código (comentario y/o en el registro ModeloML) que este scaler es
+  una aproximación derivada localmente, no el scaler original de
+  entrenamiento del modelo - deberá reemplazarse si el equipo de datos
+  entrega el scaler real más adelante.
+- SIGUE PENDIENTE (sin resolver, bloqueante solo para el motor de
+  umbrales/semáforo): la unidad de medida y los valores numéricos
+  exactos de los umbrales verde/amarillo/rojo del gas (valores de
+  referencia observados: ~1.923 a ~20.475, unidad sin confirmar) -
+  debe confirmarse con el equipo de HSE/minería antes de implementar
+  esa parte específica.
 - Por ahora solo existe una Estación (Chicamocha, 7 puntos de control
   (0-6), confirmado con datos reales del archivo coordenadas.xlsx),
   pero el modelo de datos debe soportar más de una a futuro.
-- Periodicidad exacta de guardado del histórico: aún no definida
-  (usar valor configurable, no fijo).
+- DECISIÓN: periodicidad de persistencia del histórico = cada lectura
+  se persiste inmediatamente al llegar (no hay muestreo agregado). Así
+  quedó implementado desde el endpoint de ingesta-archivo.
+- DECISIÓN: esquema de protección por rol = Trabajador (solo
+  lectura/carga de sus propios recursos), Supervisor HSE (todo lo del
+  Trabajador + gestionar alertas + aprobar cambios), Administrador
+  (todo lo del Supervisor + gestión de usuarios/roles + modelo ML +
+  configuración global) - tal como ya está descrito en la sección
+  "Roles del sistema". Esta jerarquía se aplicará endpoint por
+  endpoint cuando se implemente la fase de protección de rutas.
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.
