@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,10 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
+from app.models.password_reset_token import PasswordResetToken
 from app.models.usuario import MetodoRegistro, Usuario
-from app.schemas.usuario import TokenRespuesta, UsuarioLogin, UsuarioRegistro, UsuarioRespuesta
+from app.schemas.usuario import (
+    MensajeRespuesta,
+    RestablecerPassword,
+    SolicitudRecuperacion,
+    TokenRespuesta,
+    UsuarioLogin,
+    UsuarioRegistro,
+    UsuarioRespuesta,
+)
 
 router = APIRouter(tags=["auth"])
+
+RESET_TOKEN_EXPIRE_MINUTES = 30
+MENSAJE_RECUPERACION = "Si el correo existe, recibiras instrucciones para restablecer tu contrasena"
 
 bearer_scheme = HTTPBearer()
 
@@ -83,3 +96,51 @@ async def login(datos: UsuarioLogin, db: Annotated[AsyncSession, Depends(get_db)
 @router.get("/me", response_model=UsuarioRespuesta)
 async def me(usuario_actual: Annotated[Usuario, Depends(get_current_user)]) -> Usuario:
     return usuario_actual
+
+
+@router.post("/forgot-password", response_model=MensajeRespuesta)
+async def forgot_password(
+    datos: SolicitudRecuperacion, db: Annotated[AsyncSession, Depends(get_db)]
+) -> MensajeRespuesta:
+    usuario = await db.scalar(select(Usuario).where(Usuario.email == datos.email))
+
+    if usuario is not None:
+        token = secrets.token_urlsafe(32)
+        expiracion = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
+
+        db.add(PasswordResetToken(usuario_id=usuario.id, token=token, fecha_expiracion=expiracion))
+        await db.commit()
+
+        link = f"http://localhost:5173/reset-password?token={token}"
+        print(f"[forgot-password] Enlace de recuperacion para {usuario.email}: {link}")
+
+    return MensajeRespuesta(mensaje=MENSAJE_RECUPERACION)
+
+
+@router.post("/reset-password", response_model=MensajeRespuesta)
+async def reset_password(
+    datos: RestablecerPassword, db: Annotated[AsyncSession, Depends(get_db)]
+) -> MensajeRespuesta:
+    enlace_invalido = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="El enlace es invalido o ha expirado",
+    )
+
+    reset_token = await db.scalar(
+        select(PasswordResetToken).where(PasswordResetToken.token == datos.token)
+    )
+    if reset_token is None or reset_token.usado:
+        raise enlace_invalido
+
+    if reset_token.fecha_expiracion < datetime.now(timezone.utc):
+        raise enlace_invalido
+
+    usuario = await db.get(Usuario, reset_token.usuario_id)
+    if usuario is None:
+        raise enlace_invalido
+
+    usuario.password_hash = hash_password(datos.nueva_password)
+    reset_token.usado = True
+    await db.commit()
+
+    return MensajeRespuesta(mensaje="Contrasena actualizada correctamente")

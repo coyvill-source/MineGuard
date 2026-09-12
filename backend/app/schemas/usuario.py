@@ -25,3 +25,16 @@ class UsuarioRespuesta(BaseModel):
 class TokenRespuesta(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class SolicitudRecuperacion(BaseModel):
+    email: EmailStr
+
+
+class RestablecerPassword(BaseModel):
+    token: str
+    nueva_password: str = Field(min_length=8)
+
+
+class MensajeRespuesta(BaseModel):
+    mensaje: str
