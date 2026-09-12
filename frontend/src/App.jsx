@@ -1,20 +1,21 @@
-import Header from './components/Header'
-import Hero from './components/Hero'
-import Problema from './components/Problema'
-import Solucion from './components/Solucion'
-import Beneficios from './components/Beneficios'
-import Footer from './components/Footer'
+import { Route, Routes } from "react-router-dom"
+import Landing from "./pages/Landing"
+import Login from "./pages/Login"
+import Registro from "./pages/Registro"
+import Dashboard from "./pages/Dashboard"
+import OlvidePassword from "./pages/OlvidePassword"
+import ResetPassword from "./pages/ResetPassword"
 
 function App() {
   return (
-    <div className="min-h-screen font-sans text-mg-navy-900">
-      <Header />
-      <Hero />
-      <Problema />
-      <Solucion />
-      <Beneficios />
-      <Footer />
-    </div>
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/registro" element={<Registro />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/olvide-password" element={<OlvidePassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+    </Routes>
   )
 }
 

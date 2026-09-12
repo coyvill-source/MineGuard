@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
 import logo from "../assets/images/logo/logo.png"
 
 const navLinks = [
@@ -46,12 +47,12 @@ function Header() {
         </nav>
 
         <div className="hidden shrink-0 md:block">
-          <button
-            type="button"
+          <Link
+            to="/login"
             className="rounded-lg border border-mg-accent-500 px-5 py-2.5 text-sm font-semibold text-mg-accent-500 transition hover:bg-mg-accent-500 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-mg-accent-300 focus-visible:ring-offset-2"
           >
             Iniciar sesión
-          </button>
+          </Link>
         </div>
 
         <button
@@ -95,12 +96,13 @@ function Header() {
               </a>
             ))}
           </nav>
-          <button
-            type="button"
-            className="mt-2 w-full rounded-lg border border-mg-accent-500 px-5 py-2.5 text-sm font-semibold text-mg-accent-500 transition hover:bg-mg-accent-500 hover:text-white"
+          <Link
+            to="/login"
+            onClick={() => setMenuOpen(false)}
+            className="mt-2 block w-full rounded-lg border border-mg-accent-500 px-5 py-2.5 text-center text-sm font-semibold text-mg-accent-500 transition hover:bg-mg-accent-500 hover:text-white"
           >
             Iniciar sesión
-          </button>
+          </Link>
         </div>
       )}
     </header>
