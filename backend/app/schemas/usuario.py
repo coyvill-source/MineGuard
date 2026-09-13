@@ -47,3 +47,7 @@ class RestablecerPassword(BaseModel):
 
 class MensajeRespuesta(BaseModel):
     mensaje: str
+
+
+class ActualizarRolUsuario(BaseModel):
+    nuevo_rol: RolUsuario

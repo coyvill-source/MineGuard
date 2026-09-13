@@ -40,6 +40,14 @@ Contexto de referencia rápida para las skills de Claude Code durante el desarro
     fuente), o se cierre un punto ambiguo, se actualiza docs/PROJECT_CONTEXT.md de
     inmediato, en el mismo momento - nunca se acumulan actualizaciones pendientes para
     hacerlas al final.
+11. **Verificación de limpieza con conteo total, no solo patrón**: al
+    limpiar datos de prueba de cualquier tabla, la verificación
+    posterior debe incluir SIEMPRE un SELECT COUNT(*) del total de
+    filas de esa tabla (no solo un filtro por patrón tipo LIKE
+    '%test%'), y compararlo contra el conteo esperado antes de la
+    tarea. Un filtro por patrón puede dar "0 rows" como falso positivo
+    de limpieza exitosa si borró de más - el conteo total es la única
+    verificación que detecta un borrado excesivo.
 
 ## Stack tecnológico
 - Backend: Python + FastAPI (async) + SQLAlchemy 2.0 + Alembic.

@@ -104,6 +104,30 @@ pertenece.
   protegido por rol, que se construirá en la fase de protección de
   rutas — no existe todavía ninguna forma de crear un Supervisor o
   Administrador vía API.
+- DECISIÓN (2026-09-13): mecanismo reutilizable de protección de rutas
+  por rol implementado en `backend/app/core/permissions.py`, dependencia
+  `requiere_rol(rol_minimo)`. Compara la jerarquía numérica de
+  `JERARQUIA_ROLES` (trabajador=0 < supervisor=1 < admin=2) definida en
+  ese mismo archivo contra el rol del usuario autenticado (obtenido vía
+  `get_current_user`, que sigue viviendo en `app/api/auth.py`); si no
+  alcanza el mínimo, responde 403 con detalle claro. Uso en un endpoint
+  nuevo:
+  ```python
+  from app.core.permissions import requiere_rol
+  from app.models.usuario import RolUsuario
+
+  @router.patch("/ruta")
+  async def handler(
+      ...,
+      _actor: Annotated[Usuario, Depends(requiere_rol(RolUsuario.SUPERVISOR))],
+  ):
+      ...
+  ```
+  Todo endpoint protegido futuro debe reutilizar esta dependencia, no
+  reimplementar la validación de rol. Primer endpoint que la usa:
+  `PATCH /api/usuarios/{id}/rol` (requiere admin), en el nuevo router
+  `backend/app/api/usuarios.py` (prefijo `/api/usuarios`, registrado en
+  `main.py`).
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.
