@@ -224,3 +224,25 @@ duplicaciones y corrupción de contenido en el pasado.
   scikit-learn y joblib se agregaron a `backend/requirements.txt`
   (no estaban antes, aunque el .joblib del modelo sí existía en el
   repo).
+- DECISIÓN (2026-09-13): segundo modo de ingesta implementado —
+  `POST /api/telemetria/ingesta-aleatoria` (generador sintético bajo
+  demanda, no continuo; el modo continuo/tiempo real sigue siendo fase
+  aparte). Body: `{"punto_control_id": int, "cantidad": int}`, con
+  `cantidad` validado por Pydantic (`gt=0, le=5000`) para evitar abuso.
+  Reutiliza el mismo pipeline ML de `ingesta-archivo` a través de la
+  función compartida `_predecir_correccion` en `app/api/telemetria.py`
+  (mismo `_obtener_modelo_activo` cacheado, mismo escalado + inferencia
+  + corrección `gas_corregido = gas_crudo + error_predicho`) — no hay
+  lógica ML duplicada entre los dos endpoints.
+  Rangos de generación sintética (verificados con pandas contra
+  `Datos_despliegue.xlsx`, no eran datos ya documentados antes de esta
+  tarea): Temp 0.29-35.02, Humed 0.4-58.95, Bateria 0.17-99.73,
+  gas_crudo (Ch4) 1923-20475. Distribución **uniforme** (no normal):
+  no se entregó media/desviación estándar real, y uniforme es más
+  simple sin asumir una forma de distribución no confirmada.
+  Timestamps: secuenciales crecientes desde el momento de la petición,
+  con espaciado aleatorio uniforme entre 10 y 16 segundos por lectura
+  (en los datos reales la moda y la mediana del intervalo entre
+  lecturas consecutivas son ambas 12s). `nivel_alerta` se mantiene como
+  placeholder `'optimo'`, igual que en `ingesta-archivo` — sigue
+  bloqueado por la falta de conversión de unidades del gas (ver arriba).
