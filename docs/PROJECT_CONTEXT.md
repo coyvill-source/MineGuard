@@ -48,7 +48,10 @@ lectura del sensor de gas.
    (mismos parámetros usados en el entrenamiento — pendiente que nos
    entreguen el scaler serializado, ver Pendientes).
 3. El modelo predice el **error de lectura del gas**.
-4. Corrección final: `Gas Corregido = Gas Crudo (Ch4) ± Error Predicho`.
+4. Corrección final: `Gas Corregido = Gas Crudo (Ch4) + Error Predicho`
+   (DECISIÓN 2026-09-13: se suma, no se resta - el modelo ya predice
+   el error con signo, positivo o negativo, así que sumar aplica la
+   corrección correctamente en ambos sentidos).
 5. El Gas Corregido se compara contra umbrales (verde/amarillo/rojo)
    — ver la decisión de umbrales en "Pendientes conocidos", deben
    quedar configurables, nunca hardcodeados como constantes fijas.
@@ -83,6 +86,27 @@ pertenece.
   Estos valores son configurables en el sistema (no hardcodeados como
   constantes fijas en el código), pero estos son los valores por
   defecto de fábrica.
+- BLOQUEANTE (2026-09-13): los umbrales del Decreto 1886 (verde
+  0.0-0.9%, amarillo 1.0-1.4%, rojo >=1.5% de CH4) están en % de gas
+  metano, pero los valores reales de gas_crudo en la base de datos
+  (del archivo Datos_despliegue.xlsx) van de ~1923 a ~20475 - una
+  escala totalmente distinta, sin conversión conocida a %. NO SE DEBE
+  implementar el motor de umbrales/semáforo (clasificación de
+  nivel_alerta según estos rangos) hasta que el equipo de datos/HSE
+  confirme la unidad real del sensor y la fórmula de conversión a %
+  CH4. El pipeline de ML (escalado, inferencia, corrección matemática
+  del gas) ya está implementado y no depende de este bloqueo, pero
+  nivel_alerta se mantiene como placeholder ('optimo') hasta resolver
+  esto.
+- MEJORA PENDIENTE (no bloqueante): el pipeline ML en
+  POST /api/telemetria/ingesta-archivo ejecuta el escalado
+  (scaler.transform) y la inferencia (model.predict) fila por fila, en
+  vez de en lote (batch) sobre todo el DataFrame. Esto generó cientos
+  de warnings repetidos de scikit-learn en la ingesta de 1713 filas y
+  es ineficiente en archivos grandes. Se debe optimizar para procesar
+  las variables de entrada en un solo batch (scaler.transform(df) y
+  model.predict(...) sobre el arreglo completo) en una futura tarea de
+  refactor, sin cambiar el resultado ni el contrato del endpoint.
 - Por ahora solo existe una Estación (Chicamocha, 7 puntos de control
   (0-6), confirmado con datos reales del archivo coordenadas.xlsx),
   pero el modelo de datos debe soportar más de una a futuro.
@@ -173,8 +197,30 @@ duplicaciones y corrupción de contenido en el pasado.
   frontend completo de login/registro/dashboard) se hizo directo sobre
   `develop`. Decisión explícita ya tomada: se deja tal cual, como
   referencia histórica de esa etapa — no se renombra ni se borra.
-- `backend/app/ml_models/modelo_prediccion.joblib` (el
-  RandomForestRegressor ya entrenado) está en el working tree sin
-  commitear, a propósito: se comiteará junto con el trabajo de
-  StandardScaler + inferencia (la próxima fase de ML), para que ese
-  commit tenga el contexto completo en vez de aparecer suelto.
+- CORRECCIÓN (2026-09-13): la nota anterior sobre
+  `backend/app/ml_models/modelo_prediccion.joblib` estaba desactualizada
+  — ese archivo ya fue commiteado en `b32bd2f` (rama `develop`), no
+  sigue sin commitear.
+- DECISIÓN (2026-09-13): pipeline de ML implementado y activo para
+  ingestas nuevas vía `POST /api/telemetria/ingesta-archivo`. El
+  `ModeloML` activo se identifica como **id=1** (creado por
+  `backend/app/scripts/seed_modelo_ml.py`, idempotente): usa
+  `app/ml_models/modelo_prediccion.joblib` (el RandomForest ya
+  entrenado, requiere `scikit-learn==1.9.0` exacto para deserializar
+  sin warnings de incompatibilidad de versión) y
+  `app/ml_models/scaler_temporal.joblib` (StandardScaler ajustado
+  localmente sobre `Datos_despliegue.xlsx`, columnas Temp/Humed/Bateria
+  en ese orden — sigue siendo la aproximación TEMPORAL ya documentada
+  arriba, no el scaler original de entrenamiento). El endpoint
+  cachea modelo y scaler en memoria del proceso (`_modelo_activo_cache`
+  en `app/api/telemetria.py`) tras la primera carga; si no hay ningún
+  `ModeloML` activo en la BD, responde 503 con instrucciones de correr
+  el seed. `nivel_alerta` sigue como placeholder `'optimo'` en todas
+  las filas nuevas — el motor de umbrales/semáforo NO se implementó en
+  esta tarea (alcance explícitamente excluido).
+  **Los 1713 registros históricos de telemetría NO fueron
+  reprocesados**: permanecen con `error_predicho`/`gas_corregido`/
+  `modelo_id` en `NULL`, tal como quedaron de la ingesta original.
+  scikit-learn y joblib se agregaron a `backend/requirements.txt`
+  (no estaban antes, aunque el .joblib del modelo sí existía en el
+  repo).
