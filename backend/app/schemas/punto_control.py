@@ -4,6 +4,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.solicitud_cambio_punto_control import EstadoSolicitudCambio, TipoSolicitudCambio
+from app.models.telemetria import NivelAlerta
 
 
 class PuntoControlCrear(BaseModel):
@@ -94,3 +95,31 @@ class SolicitudCambioRespuesta(BaseModel):
 
 class SolicitudCambioRechazo(BaseModel):
     comentario: str = Field(min_length=1)
+
+
+class UltimaLecturaTelemetria(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    timestamp: datetime
+    temperatura: float
+    humedad: float
+    bateria: float
+    gas_crudo: float
+    error_predicho: float | None
+    gas_corregido: float | None
+    # Placeholder mientras el motor de umbrales/semaforo siga bloqueado
+    # (ver docs/PROJECT_CONTEXT.md): hoy TODAS las lecturas devuelven
+    # 'optimo' aqui, no es un estado real verificado de la mina.
+    nivel_alerta: NivelAlerta
+
+
+class PuntoControlEstadoActual(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    estacion_id: int
+    nombre_estacion: str
+    coord_x: float
+    coord_y: float
+    coord_z: float
+    ultima_lectura: UltimaLecturaTelemetria | None

@@ -322,3 +322,21 @@ duplicaciones y corrupción de contenido en el pasado.
     concurrencia real existe una ventana de carrera teórica para
     duplicados; no se agregó constraint `UNIQUE` porque no fue pedido
     explícitamente y cambiaría el modelo de datos ya definido.
+- DECISIÓN (2026-09-13): `GET /api/puntos-control/estado-actual`
+  (rol mínimo trabajador) — base de datos para el dashboard del
+  frontend (tarea aparte, todavía no construida). Devuelve todos los
+  puntos de control **activos** (`activo=true`), cada uno con sus
+  datos y su `ultima_lectura` (la telemetría más reciente por
+  `timestamp`), o `ultima_lectura: null` si el punto nunca recibió
+  datos. Query única (no N+1 por punto): `DISTINCT ON (punto_id)`
+  de Postgres ordenado por `timestamp DESC`, unida con `LEFT JOIN`
+  contra `puntos_control` — ver `obtener_estado_actual` en
+  `app/api/puntos_control.py`. Declarada antes de
+  `/{punto_control_id}` en el router por la misma razón que
+  `/solicitudes`: si no, Starlette intentaría convertir
+  `"estado-actual"` a `int` como path param.
+  **`nivel_alerta` sigue siendo el placeholder `'optimo'` en el 100%
+  de las lecturas que devuelva este endpoint** — el motor de
+  umbrales/semáforo sigue BLOQUEADO (ver arriba); esto NO significa
+  que la mina esté verificada como segura, es solo el valor por
+  defecto sin lógica real detrás todavía.
