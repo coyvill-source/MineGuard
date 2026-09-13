@@ -1,23 +1,65 @@
+import asyncio
 import io
 import unicodedata
 import warnings
 from datetime import datetime
 from datetime import time as dt_time
 from datetime import timezone
+from pathlib import Path
 from typing import Annotated
 
+import joblib
 import pandas as pd
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.core.database import get_db
+from app.models.modelo_ml import ModeloML
 from app.models.punto_control import PuntoControl
 from app.models.telemetria import EstadoValidacion, NivelAlerta, Telemetria
 from app.models.usuario import Usuario
 from app.schemas.telemetria import IngestaArchivoRespuesta
 
 router = APIRouter(tags=["telemetria"])
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent  # .../backend
+
+# Cache en memoria del proceso del ModeloML activo (modelo + scaler ya
+# deserializados desde disco), para no releer los .joblib en cada fila ni
+# en cada request. Solo se invalida reiniciando el proceso.
+_modelo_activo_cache: dict[str, object] = {}
+_modelo_activo_lock = asyncio.Lock()
+
+
+async def _obtener_modelo_activo(db: AsyncSession) -> dict[str, object]:
+    if _modelo_activo_cache:
+        return _modelo_activo_cache
+
+    async with _modelo_activo_lock:
+        if _modelo_activo_cache:  # otro request ya lo cargo mientras esperabamos el lock
+            return _modelo_activo_cache
+
+        modelo_ml = await db.scalar(select(ModeloML).where(ModeloML.activo.is_(True)))
+        if modelo_ml is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "No hay ningun ModeloML activo registrado. Ejecuta "
+                    "'python -m app.scripts.seed_modelo_ml' antes de ingerir telemetria."
+                ),
+            )
+
+        # NOTA: archivo_scaler del ModeloML activo apunta hoy a un
+        # StandardScaler derivado localmente (aproximacion TEMPORAL), no al
+        # scaler original de entrenamiento - ver docs/PROJECT_CONTEXT.md.
+        modelo = joblib.load(BACKEND_DIR / modelo_ml.archivo_modelo)
+        scaler = joblib.load(BACKEND_DIR / modelo_ml.archivo_scaler)
+
+        _modelo_activo_cache.update({"id": modelo_ml.id, "modelo": modelo, "scaler": scaler})
+        return _modelo_activo_cache
+
 
 COLUMNA_SINONIMOS: dict[str, set[str]] = {
     "temperatura": {"temp", "temperatura"},
@@ -125,18 +167,31 @@ async def ingesta_archivo(
 
     marcas_tiempo = _resolver_timestamps(filas_validas)
 
+    modelo_activo = await _obtener_modelo_activo(db)
+    modelo = modelo_activo["modelo"]
+    scaler = modelo_activo["scaler"]
+    modelo_id = modelo_activo["id"]
+
     for fila, marca_tiempo in zip(filas_validas.itertuples(), marcas_tiempo):
+        # Orden fijo de variables de entrada (Temp, Humed, Bateria) segun la
+        # regla de negocio del modelo - ver docs/PROJECT_CONTEXT.md.
+        variables_escaladas = scaler.transform([[fila.temperatura, fila.humedad, fila.bateria]])
+        error_predicho = float(modelo.predict(variables_escaladas)[0])
+        gas_corregido = float(fila.gas_crudo) + error_predicho
+
         db.add(
             Telemetria(
                 punto_id=punto_control_id,
-                modelo_id=None,
+                modelo_id=modelo_id,
                 timestamp=marca_tiempo,
                 temperatura=float(fila.temperatura),
                 humedad=float(fila.humedad),
                 bateria=float(fila.bateria),
                 gas_crudo=float(fila.gas_crudo),
-                error_predicho=None,
-                gas_corregido=None,
+                error_predicho=error_predicho,
+                gas_corregido=gas_corregido,
+                # Placeholder: el motor de umbrales/semaforo aun no esta
+                # implementado (fuera de alcance de esta tarea).
                 nivel_alerta=NivelAlerta.OPTIMO,
                 estado_validacion=EstadoValidacion.VALIDO,
             )
