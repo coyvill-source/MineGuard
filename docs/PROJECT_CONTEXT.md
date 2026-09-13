@@ -291,3 +291,34 @@ duplicaciones y corrupción de contenido en el pasado.
     contra una base de datos Postgres aislada y temporal
     (`mineguard_test_puntos`, mismo contenedor Docker), que se
     eliminó al terminar — `mineguard_db` no fue tocada.
+- DECISIÓN (2026-09-13): gestión de la bitácora de alertas +
+  **creación manual** de alertas, en `backend/app/api/alertas.py`
+  (prefijo `/api/alertas`, schemas en `backend/app/schemas/alerta.py`).
+  No requirió modelo ni migración nuevos — reutiliza `BitacoraAlertas`
+  y `EstadoAlerta` que ya existían.
+  - `POST /api/alertas` (rol mínimo trabajador): crea una alerta
+    manual sobre una `telemetria_id` existente (404 si no existe),
+    estado inicial `ACTIVA`. Es **manual a propósito**: hoy no existe
+    ningún mecanismo automático que genere alertas, porque el motor de
+    umbrales/semáforo sigue BLOQUEADO por falta de conversión de
+    unidades del gas (ver más arriba) — así HSE puede reportar una
+    condición sin depender de ese motor, y también sirve para pruebas.
+  - `GET /api/alertas` (filtrable por `?estado=`) y
+    `GET /api/alertas/{id}` — rol mínimo trabajador (solo lectura).
+  - `PATCH /api/alertas/{id}/mutear|escalar|resolver` — Supervisor+.
+    `resolver` exige `observacion_hse` en el body (obligatorio dejar
+    constancia); `mutear`/`escalar` lo aceptan opcional. Los tres
+    responden 409 si la alerta ya está `RESUELTA` (no se puede
+    mutear/escalar/resolver algo ya cerrado). `escalar` reactiva a
+    `ACTIVA` si estaba `MUTEADA`, o deja constancia si ya estaba
+    `ACTIVA`.
+  - NOTA: la tarea original decía "la relación es 1 a 1 [telemetria-
+    alerta] según el modelo de datos ya definido" — no es exacto: el
+    modelo (`BitacoraAlertas.telemetria_id`) no tiene constraint
+    `UNIQUE` a nivel de BD, y `Telemetria.alertas` es una relación
+    `list` (uno a muchos), no uno a uno. `POST /api/alertas` sí impone
+    "una alerta por telemetría" pero **solo a nivel de aplicación**
+    (chequeo antes del insert, no constraint de BD) — bajo
+    concurrencia real existe una ventana de carrera teórica para
+    duplicados; no se agregó constraint `UNIQUE` porque no fue pedido
+    explícitamente y cambiaría el modelo de datos ya definido.
