@@ -1,8 +1,9 @@
 import asyncio
 import io
+import random
 import unicodedata
 import warnings
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import time as dt_time
 from datetime import timezone
 from pathlib import Path
@@ -20,7 +21,11 @@ from app.models.modelo_ml import ModeloML
 from app.models.punto_control import PuntoControl
 from app.models.telemetria import EstadoValidacion, NivelAlerta, Telemetria
 from app.models.usuario import Usuario
-from app.schemas.telemetria import IngestaArchivoRespuesta
+from app.schemas.telemetria import (
+    IngestaAleatoriaRespuesta,
+    IngestaAleatoriaSolicitud,
+    IngestaArchivoRespuesta,
+)
 
 router = APIRouter(tags=["telemetria"])
 
@@ -59,6 +64,19 @@ async def _obtener_modelo_activo(db: AsyncSession) -> dict[str, object]:
 
         _modelo_activo_cache.update({"id": modelo_ml.id, "modelo": modelo, "scaler": scaler})
         return _modelo_activo_cache
+
+
+def _predecir_correccion(
+    modelo: object, scaler: object, temperatura: float, humedad: float, bateria: float, gas_crudo: float
+) -> tuple[float, float]:
+    """Escala (Temp, Humed, Bateria, en ese orden) e infiere el error del
+    modelo, aplicando la correccion gas_corregido = gas_crudo + error.
+    Compartida por ingesta-archivo e ingesta-aleatoria: un solo lugar para
+    el pipeline ML, ver docs/PROJECT_CONTEXT.md."""
+    variables_escaladas = scaler.transform([[temperatura, humedad, bateria]])
+    error_predicho = float(modelo.predict(variables_escaladas)[0])
+    gas_corregido = gas_crudo + error_predicho
+    return error_predicho, gas_corregido
 
 
 COLUMNA_SINONIMOS: dict[str, set[str]] = {
@@ -173,11 +191,9 @@ async def ingesta_archivo(
     modelo_id = modelo_activo["id"]
 
     for fila, marca_tiempo in zip(filas_validas.itertuples(), marcas_tiempo):
-        # Orden fijo de variables de entrada (Temp, Humed, Bateria) segun la
-        # regla de negocio del modelo - ver docs/PROJECT_CONTEXT.md.
-        variables_escaladas = scaler.transform([[fila.temperatura, fila.humedad, fila.bateria]])
-        error_predicho = float(modelo.predict(variables_escaladas)[0])
-        gas_corregido = float(fila.gas_crudo) + error_predicho
+        error_predicho, gas_corregido = _predecir_correccion(
+            modelo, scaler, float(fila.temperatura), float(fila.humedad), float(fila.bateria), float(fila.gas_crudo)
+        )
 
         db.add(
             Telemetria(
@@ -203,4 +219,77 @@ async def ingesta_archivo(
         filas_procesadas=len(filas_validas),
         filas_descartadas=filas_descartadas,
         punto_control_id=punto_control_id,
+    )
+
+
+# Rangos de generacion sintetica, tomados de los valores min/max reales
+# observados en backend/app/datos_prueba/Datos_despliegue.xlsx (verificado
+# con pandas: Temp .29-35.02, Humed .4-58.95, Bateria .17-99.73,
+# Ch4/gas_crudo 1923-20475). Distribucion uniforme (no normal): mas simple,
+# y evita necesitar media/desviacion estandar reales que no fueron
+# entregadas - ver docs/PROJECT_CONTEXT.md.
+RANGO_TEMPERATURA = (0.29, 35.02)
+RANGO_HUMEDAD = (0.4, 58.95)
+RANGO_BATERIA = (0.17, 99.73)
+RANGO_GAS_CRUDO = (1923, 20475)
+
+# Espaciado entre timestamps sinteticos, en segundos: en los datos reales la
+# moda y la mediana del intervalo entre lecturas consecutivas son ambas 12s
+# (con variacion entre 11 y 17s en la mayoria de los casos).
+ESPACIADO_SEGUNDOS = (10.0, 16.0)
+
+
+@router.post("/ingesta-aleatoria", response_model=IngestaAleatoriaRespuesta)
+async def ingesta_aleatoria(
+    datos: IngestaAleatoriaSolicitud,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _usuario_actual: Annotated[Usuario, Depends(get_current_user)],
+) -> IngestaAleatoriaRespuesta:
+    punto_control = await db.get(PuntoControl, datos.punto_control_id)
+    if punto_control is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="El punto de control indicado no existe"
+        )
+
+    modelo_activo = await _obtener_modelo_activo(db)
+    modelo = modelo_activo["modelo"]
+    scaler = modelo_activo["scaler"]
+    modelo_id = modelo_activo["id"]
+
+    marca_tiempo = datetime.now(timezone.utc)
+    for _ in range(datos.cantidad):
+        temperatura = random.uniform(*RANGO_TEMPERATURA)
+        humedad = random.uniform(*RANGO_HUMEDAD)
+        bateria = random.uniform(*RANGO_BATERIA)
+        gas_crudo = float(random.randint(*RANGO_GAS_CRUDO))
+
+        error_predicho, gas_corregido = _predecir_correccion(
+            modelo, scaler, temperatura, humedad, bateria, gas_crudo
+        )
+
+        db.add(
+            Telemetria(
+                punto_id=datos.punto_control_id,
+                modelo_id=modelo_id,
+                timestamp=marca_tiempo,
+                temperatura=temperatura,
+                humedad=humedad,
+                bateria=bateria,
+                gas_crudo=gas_crudo,
+                error_predicho=error_predicho,
+                gas_corregido=gas_corregido,
+                # Placeholder: el motor de umbrales/semaforo aun no esta
+                # implementado (bloqueado, ver docs/PROJECT_CONTEXT.md).
+                nivel_alerta=NivelAlerta.OPTIMO,
+                estado_validacion=EstadoValidacion.VALIDO,
+            )
+        )
+
+        marca_tiempo += timedelta(seconds=random.uniform(*ESPACIADO_SEGUNDOS))
+
+    await db.commit()
+
+    return IngestaAleatoriaRespuesta(
+        filas_generadas=datos.cantidad,
+        punto_control_id=datos.punto_control_id,
     )
