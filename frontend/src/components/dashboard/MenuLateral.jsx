@@ -4,7 +4,7 @@ import { NavLink } from "react-router-dom"
 function construirOpciones(rol) {
   const opciones = [
     { id: "plano", etiqueta: "Plano", to: "/dashboard", habilitado: true },
-    { id: "puntos-control", etiqueta: "Puntos de Control", habilitado: false },
+    { id: "puntos-control", etiqueta: "Puntos de Control", to: "/puntos-control", habilitado: true },
     { id: "alertas", etiqueta: "Alertas", habilitado: false },
   ]
 

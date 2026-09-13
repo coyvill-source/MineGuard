@@ -85,3 +85,62 @@ export function obtenerEstadoActualPuntosControl(token) {
     headers: { Authorization: `Bearer ${token}` },
   })
 }
+
+export function listarPuntosControl(token) {
+  return request("/api/puntos-control", {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function crearPuntoControl(token, datos) {
+  return request("/api/puntos-control", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(datos),
+  })
+}
+
+export function actualizarPuntoControl(token, puntoControlId, datos) {
+  return request(`/api/puntos-control/${puntoControlId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(datos),
+  })
+}
+
+export function eliminarPuntoControl(token, puntoControlId) {
+  return request(`/api/puntos-control/${puntoControlId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function proponerCambioPuntoControl(token, datos) {
+  return request("/api/puntos-control/solicitudes", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(datos),
+  })
+}
+
+export function listarSolicitudesCambio(token, estado) {
+  const query = estado ? `?estado=${encodeURIComponent(estado)}` : ""
+  return request(`/api/puntos-control/solicitudes${query}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function aprobarSolicitudCambio(token, solicitudId) {
+  return request(`/api/puntos-control/solicitudes/${solicitudId}/aprobar`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function rechazarSolicitudCambio(token, solicitudId, comentario) {
+  return request(`/api/puntos-control/solicitudes/${solicitudId}/rechazar`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ comentario }),
+  })
+}

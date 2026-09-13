@@ -402,3 +402,72 @@ duplicaciones y corrupción de contenido en el pasado.
     `max-w-7xl`, ahora ocupa todo el ancho (borde a borde), consistente
     con el patrón típico de cabeceras de dashboard (distinto del header
     de la landing, que sí se mantiene centrado).
+- DECISIÓN (2026-09-13): pantalla completa de Puntos de Control en el
+  frontend (`frontend/src/pages/PuntosControl.jsx`, ruta
+  `/puntos-control`), y refactor de layout para soportarla sin duplicar
+  código.
+  - REFACTOR: `CabeceraDashboard` (antes función local dentro de
+    `Dashboard.jsx`) se extrajo a
+    `src/components/dashboard/CabeceraDashboard.jsx`, y se creó
+    `src/components/dashboard/DashboardLayout.jsx` que centraliza el
+    gate de sesión (pantalla "Sesión no iniciada" si no hay token),
+    la carga de `usuario` vía `me(token)`, y el armado de
+    header + `MenuLateral` + `<main>`. `Dashboard.jsx` ahora es solo
+    `<DashboardLayout titulo="...">{contenido del plano}</DashboardLayout>`,
+    igual de simple que antes pero sin duplicar el layout.
+    `DashboardLayout` acepta `children` como nodo normal o como función
+    `(usuario) => nodo` para páginas que necesitan el rol (como esta).
+  - `MenuLateral`: el ítem "Puntos de Control" pasó de deshabilitado a
+    habilitado, apunta a `/puntos-control`.
+  - Nuevo `src/components/Modal.jsx` genérico (backdrop, Escape,
+    bloqueo de scroll del body — mismo patrón ya usado en el drawer de
+    `MenuLateral`): se monta/desmonta condicionalmente desde quien lo
+    usa (nunca con un prop `abierto`), así el formulario que envuelve
+    arranca limpio en cada apertura sin necesitar sincronizar estado
+    con un efecto.
+  - Qué puede hacer cada rol en `/puntos-control` (backend ya existía,
+    ver la entrada de "CRUD de puntos de control con flujo de
+    aprobación" más arriba):
+    - **Todos los roles**: ven la tabla de puntos de control (vía
+      `GET /api/puntos-control`, que devuelve activos e inactivos —
+      la tabla muestra una columna "Estado").
+    - **Trabajador**: además, botón "Proponer cambio" que abre un
+      modal (`ModalProponerCambio`) para proponer Crear/Editar/Eliminar
+      (`POST /api/puntos-control/solicitudes`). La validación del
+      formulario replica exactamente la del backend
+      (`SolicitudCambioCrear`): Crear exige estación+nombre+3
+      coordenadas; Editar exige seleccionar un punto existente y
+      llenar al menos un campo (los campos vacíos se omiten del
+      payload — "sin cambio", no se sobreescriben con null); Eliminar
+      solo exige seleccionar el punto. Tras enviar, muestra el mensaje
+      de éxito "quedó pendiente de aprobación" (no se aplica de
+      inmediato).
+    - **Supervisor y Administrador**: además, CRUD directo (botón
+      "Crear punto", y "Editar"/"Eliminar" por fila —
+      `POST`/`PATCH`/`DELETE /api/puntos-control`, sin pasar por
+      solicitud; "Eliminar" pide confirmación inline en la misma fila,
+      sin modal aparte) vía `ModalPuntoDirecto`, y la sección
+      "Solicitudes pendientes" (`GET
+      /api/puntos-control/solicitudes?estado=pendiente`) con botones
+      Aprobar (`PATCH .../aprobar`) y Rechazar (`PATCH .../rechazar`,
+      pide comentario obligatorio antes de habilitar el botón de
+      confirmar). Aprobar o rechazar refresca tanto la tabla de puntos
+      como la lista de solicitudes.
+  - Nuevas funciones en `src/lib/api.js`: `listarPuntosControl`,
+    `crearPuntoControl`, `actualizarPuntoControl`,
+    `eliminarPuntoControl`, `proponerCambioPuntoControl`,
+    `listarSolicitudesCambio`, `aprobarSolicitudCambio`,
+    `rechazarSolicitudCambio` — mismo patrón que las funciones ya
+    existentes (helper `request` centralizado, header `Authorization`
+    manual en cada llamada).
+  - Nuevos hooks `src/hooks/usePuntosControl.js` y
+    `src/hooks/useSolicitudesPendientes.js` (fetch + `recargar()`,
+    sin polling — a diferencia de `useEstadoActual`, aquí se refresca
+    explícitamente después de cada acción, no cada N segundos).
+  - No existe endpoint para listar Estaciones (fuera de alcance, no se
+    pidió); el selector de "Estación" en los formularios deriva las
+    opciones de los `estacion_id` ya presentes en la lista de puntos
+    cargada — funciona porque hoy solo existe una Estación
+    (Chicamocha), pero seguirá funcionando si se agregan más sin
+    necesitar un endpoint nuevo, siempre que ya tengan al menos un
+    punto de control creado.
