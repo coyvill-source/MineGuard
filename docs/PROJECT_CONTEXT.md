@@ -340,3 +340,65 @@ duplicaciones y corrupción de contenido en el pasado.
   umbrales/semáforo sigue BLOQUEADO (ver arriba); esto NO significa
   que la mina esté verificada como segura, es solo el valor por
   defecto sin lógica real detrás todavía.
+- DECISIÓN (2026-09-13): Dashboard real del frontend implementado,
+  reemplazando el placeholder de `frontend/src/pages/Dashboard.jsx`.
+  Consume `GET /api/puntos-control/estado-actual` (función
+  `obtenerEstadoActualPuntosControl` en `src/lib/api.js`) a través del
+  hook `useEstadoActual` (`src/hooks/useEstadoActual.js`), que
+  refresca cada 20s automáticamente sin parpadear el estado de carga
+  en cada poll (solo lo muestra en la carga inicial); si un poll en
+  background falla, mantiene los últimos datos visibles y muestra un
+  aviso pequeño en vez de vaciar la pantalla.
+  - Plano 2D en `src/components/dashboard/PlanoPuntosControl.jsx`:
+    SVG con `viewBox` calculado dinámicamente a partir del rango real
+    de `coord_x`/`coord_y` de los puntos (con padding), esquemático
+    (sin imagen de fondo, sin invertir el eje Y). Marcador por
+    `nivel_alerta` de `ultima_lectura` (verde/amarillo/rojo) o gris
+    (`slate`, no es color de marca) si `ultima_lectura` es `null`.
+    Tooltip con hover Y click/tap (para tablets sin hover) + soporte
+    de teclado (focus/Enter/Espacio) mostrando nombre, coordenadas, y
+    si hay lectura: temperatura, humedad, batería, gas crudo, gas
+    corregido y timestamp — o "Sin datos registrados" si no la hay.
+  - Banner informativo (NO en colores de alerta, para no confundirse
+    con el semáforo) explicando que la clasificación de niveles está
+    pendiente de calibración y que 'óptimo' es un placeholder.
+  - Colores de marca (`mg-navy-900` en el header, `mg-accent-*` en
+    acentos) ya definidos en `src/index.css`; el semáforo reutiliza
+    `mg-safe-500`/`mg-alert-500`/`mg-danger-500` que YA existían ahí
+    desde antes de esta tarea (no fue necesario agregar tokens nuevos).
+  - Responsivo vía `aspect-[4/3] xl:aspect-[16/9]` (Tailwind v4) para
+    verse bien tanto en tablets como en pantallas panorámicas.
+  - Fuera de alcance (confirmado, próxima fase aparte): gestión de
+    alertas desde el dashboard y CRUD de puntos de control desde el
+    frontend.
+- DECISIÓN (2026-09-13): menú lateral del Dashboard + corrección de
+  navegación del logo.
+  - Logo: en `src/components/Header.jsx` (landing) el logo ahora usa
+    `useAuth()` para navegar a `/dashboard` si hay sesión activa o a
+    `/` si no. En el header del Dashboard (`CabeceraDashboard`, dentro
+    de `src/pages/Dashboard.jsx`) el logo va fijo a `/dashboard` sin
+    volver a leer `AuthContext` — ese componente solo se renderiza ya
+    autenticado (`Dashboard` corta antes con la pantalla de "Sesión no
+    iniciada" si no hay token), así que la lógica condicional ahí
+    sería código muerto.
+  - Menú lateral en `src/components/dashboard/MenuLateral.jsx`:
+    "Plano" (activo, único item real hoy, resaltado con `NavLink`) +
+    "Puntos de Control" y "Alertas" deshabilitados ("Próximamente",
+    `<button disabled>` para que sea imposible navegar a una ruta
+    rota — no son `<Link>`). Si `rol` es `supervisor` o `admin` se
+    agrega "Aprobaciones" (deshabilitado); solo si `rol` es `admin` se
+    agrega además "Gestión de Usuarios" (deshabilitado). El rol viene
+    del mismo `me(token)` que ya usaba `Dashboard.jsx` para mostrar
+    nombre/rol en la cabecera.
+  - Responsivo: `lg` (1024px) es el corte — pantallas panorámicas
+    (`lg:` y superior) ven el sidebar fijo a la izquierda siempre
+    visible; tablets y angosto (`<lg`) usan un botón hamburguesa en la
+    cabecera del Dashboard que abre un drawer con overlay (cierra con
+    click afuera, botón X, o tecla Escape; bloquea el scroll del body
+    mientras está abierto).
+  - Layout de `Dashboard.jsx` ajustado a `flex` (sidebar + `<main>`),
+    con el contenido interno limitado a `max-w-[1600px]` centrado
+    dentro del espacio disponible — el header ya no está centrado con
+    `max-w-7xl`, ahora ocupa todo el ancho (borde a borde), consistente
+    con el patrón típico de cabeceras de dashboard (distinto del header
+    de la landing, que sí se mantiene centrado).

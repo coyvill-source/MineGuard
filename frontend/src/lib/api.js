@@ -79,3 +79,9 @@ export function resetPassword({ token, nuevaPassword }) {
     body: JSON.stringify({ token, nueva_password: nuevaPassword }),
   })
 }
+
+export function obtenerEstadoActualPuntosControl(token) {
+  return request("/api/puntos-control/estado-actual", {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}

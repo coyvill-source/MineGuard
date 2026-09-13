@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import logo from "../assets/images/logo/logo.png"
+import { useAuth } from "../context/AuthContext"
 
 const navLinks = [
   { label: "Inicio", href: "#" },
@@ -9,6 +10,8 @@ const navLinks = [
 ]
 
 function Header() {
+  const { isAuthenticated } = useAuth()
+  const inicioHref = isAuthenticated ? "/dashboard" : "/"
   const [scrolled, setScrolled] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -26,13 +29,13 @@ function Header() {
       }`}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-6 py-2 sm:px-10 lg:px-16">
-        <a href="#" className="flex shrink-0 items-center">
+        <Link to={inicioHref} className="flex shrink-0 items-center">
           <img
             src={logo}
             alt="MineGuard"
             className="h-[3.0375rem] w-auto object-contain sm:h-[3.375rem]"
           />
-        </a>
+        </Link>
 
         <nav className="hidden items-center gap-8 md:flex">
           {navLinks.map((link) => (
