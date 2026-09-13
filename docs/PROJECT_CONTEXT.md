@@ -187,11 +187,15 @@ Claude Code, nunca con comandos bash tipo "cat >>" o heredocs pegados
 directamente en la terminal de Git Bash del usuario - eso ha causado
 duplicaciones y corrupción de contenido en el pasado.
 
-## Estado de ramas y pendientes (actualizado 2026-09-12)
-- Rama activa de desarrollo: `feature/ingesta-datos`, con historial
-  propio (ya no apunta al mismo commit que `develop`; incluye el seed
-  de Chicamocha, el endpoint de ingesta, la migración de nulos y este
-  mismo archivo de contexto).
+## Estado de ramas y pendientes (actualizado 2026-09-13)
+- Rama activa de desarrollo: `feature/crud-puntos-control`, creada
+  desde `develop`. Desde la nota anterior (2026-09-12), `develop` ya
+  tiene fusionado: el seed de Chicamocha y el endpoint de ingesta por
+  archivo, el registro completo con datos personales (rol trabajador
+  fijo), la protección de rutas por rol, el pipeline de ML (scaler +
+  inferencia) y el generador de datos aleatorio bajo demanda — el
+  detalle de cada uno vive en su propia entrada "DECISIÓN" a lo largo
+  de este archivo, no se repite aquí.
 - `feature/frontend-login` quedó congelada en el commit del login por
   correo/contraseña (b15c372); el trabajo posterior (forgot-password,
   frontend completo de login/registro/dashboard) se hizo directo sobre
@@ -246,3 +250,44 @@ duplicaciones y corrupción de contenido en el pasado.
   lecturas consecutivas son ambas 12s). `nivel_alerta` se mantiene como
   placeholder `'optimo'`, igual que en `ingesta-archivo` — sigue
   bloqueado por la falta de conversión de unidades del gas (ver arriba).
+- DECISIÓN (2026-09-13): CRUD completo de puntos de control con flujo
+  de aprobación, implementado en `backend/app/api/puntos_control.py`
+  (prefijo `/api/puntos-control`) + modelo nuevo
+  `SolicitudCambioPuntoControl` en
+  `backend/app/models/solicitud_cambio_punto_control.py` (tabla
+  `solicitudes_cambio_punto_control`, migración `5c10ed6fdbf2`
+  **generada pero NO aplicada** — pendiente de tu revisión).
+  - Trabajador: `GET /api/puntos-control` y `GET /api/puntos-control/{id}`
+    (lectura), y `POST /api/puntos-control/solicitudes` (propone
+    crear/editar/eliminar, queda en estado `pendiente`, sin aplicarse).
+  - Supervisor+: además, CRUD directo (`POST`/`PATCH`/`DELETE` sobre
+    `/api/puntos-control/{id}` — `DELETE` es soft-delete, marca
+    `activo=false`, reutilizando el campo `activo` que ya existía en
+    `PuntoControl`) y gestión de solicitudes: `GET
+    /api/puntos-control/solicitudes` (filtrable por `?estado=`),
+    `PATCH .../solicitudes/{id}/aprobar` (aplica el cambio real y
+    marca `aprobada`) y `.../rechazar` (NO aplica nada, guarda
+    `comentario_revision`, marca `rechazada`). Aprobar/rechazar una
+    solicitud que ya fue revisada responde 409, no la vuelve a
+    procesar.
+  - Todos los endpoints protegidos reutilizan `requiere_rol` de
+    `app/core/permissions.py` (sin reimplementar validación de rol).
+  - Rutas `/solicitudes...` declaradas ANTES de `/{punto_control_id}`
+    en el router — si no, Starlette intentaría convertir `"solicitudes"`
+    a `int` como si fuera el path param `{punto_control_id}` y
+    fallaría con 422 en vez de llegar al handler correcto.
+  - Sobre el "bug conocido de Alembic con enums en Postgres": el
+    autogenerate de esta migración usa `op.create_table(...)` con los
+    2 enums nuevos (`tipo_solicitud_cambio`, `estado_solicitud_cambio`)
+    inline — el mismo patrón exacto de la migración inicial
+    (`7ebd0107e308`, que ya funciona en producción). El fix explícito
+    (`create_type=False` + `.create()` manual antes del `add_column`,
+    visto en `9dd2b7ffdaeb`) solo aplica cuando se agrega un enum vía
+    `op.add_column` sobre una tabla YA EXISTENTE — no es el caso aquí
+    (tabla nueva), así que NO se modificó el autogenerate.
+  - Verificación real: no se aplicó la migración a `mineguard_db` (la
+    que vas a revisar). En su lugar se probó el flujo completo end-to-
+    end (CRUD directo, proponer/aprobar/rechazar, soft-delete, 403/409)
+    contra una base de datos Postgres aislada y temporal
+    (`mineguard_test_puntos`, mismo contenedor Docker), que se
+    eliminó al terminar — `mineguard_db` no fue tocada.

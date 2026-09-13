@@ -3,6 +3,11 @@ from app.models.estacion import Estacion
 from app.models.modelo_ml import ModeloML
 from app.models.password_reset_token import PasswordResetToken
 from app.models.punto_control import PuntoControl
+from app.models.solicitud_cambio_punto_control import (
+    EstadoSolicitudCambio,
+    SolicitudCambioPuntoControl,
+    TipoSolicitudCambio,
+)
 from app.models.telemetria import EstadoValidacion, NivelAlerta, Telemetria
 from app.models.usuario import MetodoRegistro, RolUsuario, Usuario
 
@@ -13,6 +18,9 @@ __all__ = [
     "ModeloML",
     "PasswordResetToken",
     "PuntoControl",
+    "EstadoSolicitudCambio",
+    "SolicitudCambioPuntoControl",
+    "TipoSolicitudCambio",
     "EstadoValidacion",
     "NivelAlerta",
     "Telemetria",

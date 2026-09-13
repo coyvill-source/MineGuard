@@ -86,16 +86,19 @@ Contexto de referencia rápida para las skills de Claude Code durante el desarro
   backend desde `VITE_API_URL` (`frontend/.env`) — nunca hardcodeada
   por componente.
 - Migraciones de Alembic al día (`alembic current` == head del código).
-- Pendiente (próxima fase): StandardScaler + inferencia del modelo ML
-  sobre la telemetría ya ingresada; protección de rutas/endpoints por
-  rol; flujo real de Google OAuth.
+- Protección de rutas por rol: implementada en `app/core/permissions.py`
+  (dependencia `requiere_rol`), usada en todos los endpoints
+  protegidos.
+- Pendiente (próxima fase): flujo real de Google OAuth.
 
 ## Reglas de negocio clave (confirmadas)
 - **ML**: variables de entrada al modelo son Temp, Humed, Bateria (en
   ese orden); Ch4 (gas) NO entra al modelo, solo se usa para la
   corrección final: `Gas Corregido = Gas Crudo ± Error Predicho`.
-  Umbrales verde/amarillo/rojo aún no definidos — usar placeholders
-  configurables, nunca hardcodear.
+  Umbrales verde/amarillo/rojo YA decididos según el Decreto 1886
+  (ver PROJECT_CONTEXT.md) — pero el motor que los aplica (clasificar
+  nivel_alerta) sigue BLOQUEADO por falta de conversión de unidades
+  del gas; usar placeholders configurables, nunca hardcodear.
 - **Auth**: dos métodos de login válidos (correo/contraseña y Google
   OAuth); en ambos casos el usuario debe existir en la tabla `Usuario`
   con un rol asignado, y el JWT emitido es el mismo sin importar el
