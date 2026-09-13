@@ -23,8 +23,15 @@ Contexto de referencia rápida para las skills de Claude Code durante el desarro
    preferir conectar a datos reales o dejar estados vacíos bien manejados.
 5. **Antes de escribir código nuevo**: revisar si ya existe algo similar (modelo,
    endpoint, componente) para reutilizar en vez de duplicar.
-6. **Ante ambigüedad de una regla de negocio**: preguntar antes de asumir, especialmente
-   si afecta datos, permisos, o dinero.
+6. **Ante ambigüedad de una regla de negocio: preguntar antes de
+   asumir**, especialmente si afecta datos, permisos, o dinero. Esto
+   también aplica al alcance de las ediciones a docs/PROJECT_CONTEXT.md
+   y CLAUDE.md: si al hacer una tarea se detecta que otra parte del
+   documento está desactualizada o incompleta, se debe señalar
+   explícitamente al usuario y esperar confirmación antes de
+   corregirla en el mismo commit - salvo que la tarea ya lo pida
+   explícitamente. Está bien proponer la corrección, no está bien
+   aplicarla sin mencionarla primero.
 7. **Commit inmediato al confirmar una tarea**: en cuanto el usuario prueba un cambio y
    confirma que funciona, se comitea antes de pasar al siguiente ajuste o cambiar de
    rama. Nunca dejar trabajo sin commitear mientras se avanza de fase.
