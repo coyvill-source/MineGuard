@@ -41,6 +41,9 @@ class Telemetria(Base):
     gas_crudo: Mapped[float] = mapped_column(Float, nullable=False)
     error_predicho: Mapped[float | None] = mapped_column(Float, nullable=True)
     gas_corregido: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Porcentaje de metano (gas_corregido en ppm / 10000), NULL si aun no
+    # hay gas_corregido - ver app/core/umbrales.py.
+    gas_corregido_porcentaje: Mapped[float | None] = mapped_column(Float, nullable=True)
     nivel_alerta: Mapped[NivelAlerta] = mapped_column(
         Enum(NivelAlerta, name="nivel_alerta", native_enum=True), nullable=False
     )

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.auth import get_current_user
 from app.core.database import get_db
 from app.core.permissions import requiere_rol
+from app.core.umbrales import clasificar_nivel_alerta, ppm_a_porcentaje
 from app.models.modelo_ml import ModeloML
 from app.models.punto_control import PuntoControl
 from app.models.telemetria import EstadoValidacion, NivelAlerta, Telemetria
@@ -70,15 +71,19 @@ async def _obtener_modelo_activo(db: AsyncSession) -> dict[str, object]:
 
 def _predecir_correccion(
     modelo: object, scaler: object, temperatura: float, humedad: float, bateria: float, gas_crudo: float
-) -> tuple[float, float]:
+) -> tuple[float, float, float, NivelAlerta]:
     """Escala (Temp, Humed, Bateria, en ese orden) e infiere el error del
-    modelo, aplicando la correccion gas_corregido = gas_crudo + error.
-    Compartida por ingesta-archivo e ingesta-aleatoria: un solo lugar para
-    el pipeline ML, ver docs/PROJECT_CONTEXT.md."""
+    modelo, aplicando la correccion gas_corregido = gas_crudo + error, y
+    clasifica el nivel de alerta real (motor de umbrales, ver
+    app/core/umbrales.py: gas_corregido esta en ppm, se convierte a % antes
+    de clasificar). Compartida por ingesta-archivo e ingesta-aleatoria: un
+    solo lugar para el pipeline ML, ver docs/PROJECT_CONTEXT.md."""
     variables_escaladas = scaler.transform([[temperatura, humedad, bateria]])
     error_predicho = float(modelo.predict(variables_escaladas)[0])
     gas_corregido = gas_crudo + error_predicho
-    return error_predicho, gas_corregido
+    gas_corregido_porcentaje = ppm_a_porcentaje(gas_corregido)
+    nivel_alerta = clasificar_nivel_alerta(gas_corregido_porcentaje)
+    return error_predicho, gas_corregido, gas_corregido_porcentaje, nivel_alerta
 
 
 COLUMNA_SINONIMOS: dict[str, set[str]] = {
@@ -193,7 +198,7 @@ async def ingesta_archivo(
     modelo_id = modelo_activo["id"]
 
     for fila, marca_tiempo in zip(filas_validas.itertuples(), marcas_tiempo):
-        error_predicho, gas_corregido = _predecir_correccion(
+        error_predicho, gas_corregido, gas_corregido_porcentaje, nivel_alerta = _predecir_correccion(
             modelo, scaler, float(fila.temperatura), float(fila.humedad), float(fila.bateria), float(fila.gas_crudo)
         )
 
@@ -208,9 +213,8 @@ async def ingesta_archivo(
                 gas_crudo=float(fila.gas_crudo),
                 error_predicho=error_predicho,
                 gas_corregido=gas_corregido,
-                # Placeholder: el motor de umbrales/semaforo aun no esta
-                # implementado (fuera de alcance de esta tarea).
-                nivel_alerta=NivelAlerta.OPTIMO,
+                gas_corregido_porcentaje=gas_corregido_porcentaje,
+                nivel_alerta=nivel_alerta,
                 estado_validacion=EstadoValidacion.VALIDO,
             )
         )
@@ -265,7 +269,7 @@ async def ingesta_aleatoria(
         bateria = random.uniform(*RANGO_BATERIA)
         gas_crudo = float(random.randint(*RANGO_GAS_CRUDO))
 
-        error_predicho, gas_corregido = _predecir_correccion(
+        error_predicho, gas_corregido, gas_corregido_porcentaje, nivel_alerta = _predecir_correccion(
             modelo, scaler, temperatura, humedad, bateria, gas_crudo
         )
 
@@ -280,9 +284,8 @@ async def ingesta_aleatoria(
                 gas_crudo=gas_crudo,
                 error_predicho=error_predicho,
                 gas_corregido=gas_corregido,
-                # Placeholder: el motor de umbrales/semaforo aun no esta
-                # implementado (bloqueado, ver docs/PROJECT_CONTEXT.md).
-                nivel_alerta=NivelAlerta.OPTIMO,
+                gas_corregido_porcentaje=gas_corregido_porcentaje,
+                nivel_alerta=nivel_alerta,
                 estado_validacion=EstadoValidacion.VALIDO,
             )
         )

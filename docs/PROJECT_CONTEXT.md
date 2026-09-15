@@ -75,29 +75,67 @@ pertenece.
   una aproximación derivada localmente, no el scaler original de
   entrenamiento del modelo - deberá reemplazarse si el equipo de datos
   entrega el scaler real más adelante.
-- DECISIÓN (2026-09-12): umbrales del gas metano (% CH4), basados en
-  el Reglamento de Seguridad Subterránea de Colombia (Decreto 1886):
-  - Verde (Óptimo): 0.0% a 0.9% CH4 - operación normal.
-  - Amarillo (Alerta): 1.0% a 1.4% CH4 - prohibido uso de explosivos,
-    ajustar ventilación; debe notificar al Supervisor HSE.
-  - Rojo (Crítico): >= 1.5% CH4 - riesgo de explosión; debe
-    desenergizar equipos, evacuar personal, y generar registro
+- DECISIÓN (2026-09-12, rangos numéricos corregidos el 2026-09-15 —
+  ver esa entrada más abajo para la implementación real del motor de
+  umbrales): umbrales del gas metano (% CH4), basados en el
+  Reglamento de Seguridad Subterránea de Colombia (Decreto 1886):
+  - Verde (Óptimo): porcentaje <= 0.9% CH4 - operación normal.
+  - Amarillo (Alerta): 0.9% < porcentaje < 1.5% CH4 - prohibido uso
+    de explosivos, ajustar ventilación; debe notificar al Supervisor
+    HSE.
+  - Rojo (Crítico): porcentaje >= 1.5% CH4 - riesgo de explosión;
+    debe desenergizar equipos, evacuar personal, y generar registro
     indeleble en la bitácora de alertas.
-  Estos valores son configurables en el sistema (no hardcodeados como
-  constantes fijas en el código), pero estos son los valores por
-  defecto de fábrica.
-- BLOQUEANTE (2026-09-13): los umbrales del Decreto 1886 (verde
-  0.0-0.9%, amarillo 1.0-1.4%, rojo >=1.5% de CH4) están en % de gas
-  metano, pero los valores reales de gas_crudo en la base de datos
-  (del archivo Datos_despliegue.xlsx) van de ~1923 a ~20475 - una
-  escala totalmente distinta, sin conversión conocida a %. NO SE DEBE
-  implementar el motor de umbrales/semáforo (clasificación de
-  nivel_alerta según estos rangos) hasta que el equipo de datos/HSE
-  confirme la unidad real del sensor y la fórmula de conversión a %
-  CH4. El pipeline de ML (escalado, inferencia, corrección matemática
-  del gas) ya está implementado y no depende de este bloqueo, pero
-  nivel_alerta se mantiene como placeholder ('optimo') hasta resolver
-  esto.
+  Límites continuos, sin huecos entre rangos (la versión original de
+  esta nota tenía un hueco sin definir entre 0.9-1.0% y 1.4-1.5%,
+  ya corregido). Estos valores son configurables en el sistema (no
+  hardcodeados como constantes fijas en el código), pero estos son
+  los valores por defecto de fábrica.
+- DECISIÓN (2026-09-15, RESUELVE el bloqueo anterior de 2026-09-13):
+  el equipo de datos/HSE confirmó la unidad y fórmula de conversión —
+  el sensor reporta el gas en **ppm**, y `% CH4 = ppm / 10000`
+  (1% = 10 000 ppm). La conversión se aplica sobre `gas_corregido`
+  (ya corregido por el modelo ML), no sobre `gas_crudo` directo.
+  Rangos exactos (Decreto 1886, límites cerrados/continuos, sin huecos
+  como en la nota de fábrica de 2026-09-12 más arriba — ver aclaración
+  al final de esta entrada): `ÓPTIMO` si `porcentaje <= 0.9`;
+  `ALERTA` si `0.9 < porcentaje < 1.5`; `CRÍTICO` si `porcentaje >= 1.5`.
+  - Motor de umbrales implementado en `backend/app/core/umbrales.py`:
+    `ppm_a_porcentaje()`, `clasificar_nivel_alerta()`, y las
+    constantes `LIMITE_OPTIMO_PORCENTAJE=0.9` /
+    `LIMITE_CRITICO_PORCENTAJE=1.5` — siguen siendo **fijas en
+    código** por ahora; el módulo deja documentado como PENDIENTE
+    (no construido todavía) que deberían volverse configurables desde
+    el panel de administrador en una futura tarea.
+  - Nueva columna `gas_corregido_porcentaje` (Float, nullable) en
+    `Telemetria` — coexiste con `gas_corregido` (ppm), no lo
+    reemplaza. Migración `1f707bee2405` generada (autogenerate,
+    **sin aplicar aún — pendiente de tu revisión**, ver
+    `alembic/versions/1f707bee2405_agregar_gas_corregido_porcentaje_a_.py`).
+    Columna `Float` simple, no `Enum`, así que el bug conocido de
+    Alembic+Enum no aplica aquí tampoco.
+  - `_predecir_correccion` (pipeline ML compartido en
+    `app/api/telemetria.py`, usado por `ingesta-archivo` e
+    `ingesta-aleatoria`) ahora calcula y devuelve también
+    `gas_corregido_porcentaje` y el `nivel_alerta` REAL — se eliminó
+    el placeholder `NivelAlerta.OPTIMO` de ambos endpoints.
+  - Aplicación retroactiva: `backend/app/scripts/reclasificar_telemetria_historica.py`
+    (idempotente, **sin ejecutar aún — pendiente de tu confirmación**)
+    recalcula `gas_corregido_porcentaje` y `nivel_alerta` para TODOS
+    los registros de `Telemetria` con `gas_corregido` no nulo; los
+    históricos con `gas_corregido` NULL (nunca reprocesados por el
+    pipeline ML) quedan intactos, no hay nada que calcular para ellos.
+  - ACLARACIÓN sobre la nota de fábrica de 2026-09-12 (más arriba en
+    este archivo, "Verde 0.0-0.9% / Amarillo 1.0-1.4% / Rojo >=1.5%"):
+    tenía huecos entre 0.9-1.0 y 1.4-1.5 sin definir; esta DECISIÓN
+    los cierra con límites continuos y es la que gobierna la
+    implementación real. No edité esa nota de 2026-09-12 para no
+    tocar algo fuera de lo que pediste explícitamente en esta tarea —
+    señalado aquí para que la corrijas o confirmes si quieres que la
+    actualice en una futura tarea.
+  - Frontend: el banner del Dashboard ("pendiente de calibración")
+    sigue sin actualizar — es una tarea aparte, explícitamente fuera
+    de alcance de esta.
 - MEJORA PENDIENTE (no bloqueante): el pipeline ML en
   POST /api/telemetria/ingesta-archivo ejecuta el escalado
   (scaler.transform) y la inferencia (model.predict) fila por fila, en
