@@ -1,4 +1,8 @@
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.models.telemetria import NivelAlerta
 
 
 class IngestaArchivoRespuesta(BaseModel):
@@ -15,3 +19,16 @@ class IngestaAleatoriaSolicitud(BaseModel):
 class IngestaAleatoriaRespuesta(BaseModel):
     filas_generadas: int
     punto_control_id: int
+
+
+class TelemetriaResumen(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    timestamp: datetime
+    temperatura: float
+    humedad: float
+    bateria: float
+    gas_crudo: float
+    gas_corregido: float | None
+    nivel_alerta: NivelAlerta

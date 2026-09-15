@@ -520,3 +520,29 @@ duplicaciones y corrupción de contenido en el pasado.
     mismo patrón que las demás.
   - Nuevo hook `src/hooks/useAlertas.js` (fetch + `recargar()`, sin
     polling, se re-ejecuta también cuando cambia el filtro de estado).
+- DECISIÓN (2026-09-15): `GET /api/telemetria/recientes?punto_control_id=X`
+  (rol mínimo trabajador, en `app/api/telemetria.py`). Devuelve las
+  últimas 10 lecturas (`LIMITE_RECIENTES`) de ese punto de control,
+  ordenadas por `timestamp DESC`: `id`, `timestamp`, `temperatura`,
+  `humedad`, `bateria`, `gas_crudo`, `gas_corregido` (nullable — los
+  1713 registros históricos aún no tienen este campo, ver arriba),
+  `nivel_alerta` (schema `TelemetriaResumen` en
+  `schemas/telemetria.py`). 404 si el punto de control no existe;
+  lista vacía (no error) si existe pero no tiene lecturas todavía.
+  Reemplaza en el frontend la LIMITACIÓN CONOCIDA documentada arriba
+  (input numérico manual de `telemetria_id` en "Reportar alerta") —
+  ver la entrada siguiente.
+- DECISIÓN (2026-09-15): "Reportar alerta" (`ModalReportarAlerta.jsx`)
+  ya no pide el `telemetria_id` a mano — ahora es una búsqueda guiada
+  en dos pasos: 1) el usuario elige un punto de control de un
+  `<select>` (reutiliza `listarPuntosControl` ya existente), 2) al
+  elegir uno se cargan sus últimas 10 lecturas
+  (`GET /api/telemetria/recientes`, nueva función `listarTelemetriasRecientes`
+  en `api.js`) como una segunda lista seleccionable, cada opción
+  mostrando timestamp + gas corregido (o "sin gas corregido" si es un
+  registro histórico sin ese campo) en vez de solo el id crudo. Si el
+  punto elegido no tiene lecturas, se muestra el mensaje "Este punto
+  de control no tiene lecturas registradas todavía" en vez de una
+  lista vacía sin explicación. La LIMITACIÓN CONOCIDA anterior (campo
+  numérico manual, sin forma amigable de buscar telemetrías) queda
+  resuelta con esta tarea.

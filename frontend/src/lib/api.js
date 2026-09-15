@@ -183,3 +183,9 @@ export function resolverAlerta(token, alertaId, observacionHse) {
     body: JSON.stringify({ observacion_hse: observacionHse }),
   })
 }
+
+export function listarTelemetriasRecientes(token, puntoControlId) {
+  return request(`/api/telemetria/recientes?punto_control_id=${puntoControlId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}

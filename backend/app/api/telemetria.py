@@ -17,14 +17,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.core.database import get_db
+from app.core.permissions import requiere_rol
 from app.models.modelo_ml import ModeloML
 from app.models.punto_control import PuntoControl
 from app.models.telemetria import EstadoValidacion, NivelAlerta, Telemetria
-from app.models.usuario import Usuario
+from app.models.usuario import RolUsuario, Usuario
 from app.schemas.telemetria import (
     IngestaAleatoriaRespuesta,
     IngestaAleatoriaSolicitud,
     IngestaArchivoRespuesta,
+    TelemetriaResumen,
 )
 
 router = APIRouter(tags=["telemetria"])
@@ -293,3 +295,28 @@ async def ingesta_aleatoria(
         filas_generadas=datos.cantidad,
         punto_control_id=datos.punto_control_id,
     )
+
+
+LIMITE_RECIENTES = 10
+
+
+@router.get("/recientes", response_model=list[TelemetriaResumen])
+async def telemetrias_recientes(
+    punto_control_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _actor: Annotated[Usuario, Depends(requiere_rol(RolUsuario.TRABAJADOR))],
+) -> list[Telemetria]:
+    punto_control = await db.get(PuntoControl, punto_control_id)
+    if punto_control is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="El punto de control indicado no existe"
+        )
+
+    consulta = (
+        select(Telemetria)
+        .where(Telemetria.punto_id == punto_control_id)
+        .order_by(Telemetria.timestamp.desc())
+        .limit(LIMITE_RECIENTES)
+    )
+    resultado = await db.scalars(consulta)
+    return list(resultado.all())
