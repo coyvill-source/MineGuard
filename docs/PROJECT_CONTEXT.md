@@ -471,3 +471,52 @@ duplicaciones y corrupción de contenido en el pasado.
     (Chicamocha), pero seguirá funcionando si se agregan más sin
     necesitar un endpoint nuevo, siempre que ya tengan al menos un
     punto de control creado.
+- DECISIÓN (2026-09-13): pantalla completa de Alertas en el frontend
+  (`frontend/src/pages/Alertas.jsx`, ruta `/alertas`), reutilizando
+  `DashboardLayout` (sin duplicar layout) y el componente `Modal.jsx`
+  ya existente. `MenuLateral`: el ítem "Alertas" pasó de deshabilitado
+  a habilitado, apunta a `/alertas`.
+  - **Todos los roles**: ven la tabla de alertas
+    (`GET /api/alertas`, filtrable por `?estado=` con un `<select>`
+    simple: Activa/Muteada/Resuelta/Todas), y el botón "Reportar
+    alerta" (`ModalReportarAlerta`, `POST /api/alertas`).
+  - LIMITACIÓN CONOCIDA (a mejorar después, no resuelta en esta tarea):
+    no existe ningún endpoint para listar/buscar telemetrías de forma
+    amigable, así que el campo `telemetria_id` en "Reportar alerta" es
+    un simple input numérico (el usuario debe conocer el ID de
+    memoria) — no un selector. Queda advertido explícitamente en el
+    propio modal para el usuario final, y aquí para futuras tareas.
+  - Los errores 404 (telemetría no existe) y 409 (alerta duplicada)
+    del backend se muestran tal cual llegan (`err.message`, ya viene
+    del campo `detail` del backend vía el `ApiError` existente en
+    `api.js`) — no se reinterpretan ni se reemplazan por un mensaje
+    genérico.
+  - **Supervisor y Administrador**: además, por cada alerta que NO
+    esté `resuelta`, botones inline "Mutear"/"Escalar"/"Resolver"
+    (mismo patrón inline-en-la-fila que "Rechazar" en
+    `SeccionSolicitudesPendientes`, no un modal aparte): Mutear y
+    Escalar llevan un campo de observación opcional; Resolver exige
+    observación no vacía antes de habilitar la confirmación, igual
+    que ya lo exige el backend (`SolicitudCambioRechazo`/
+    `AlertaResolver`). Toda acción refresca la lista de alertas.
+  - Paleta de estado de gestión de la alerta (`activa`/`muteada`/
+    `resuelta`) deliberadamente DISTINTA a la del semáforo de
+    `nivel_alerta` del Dashboard (verde/amarillo/rojo =
+    `mg-safe`/`mg-alert`/`mg-danger`), para no mezclar ambos
+    conceptos: `activa` usa `mg-accent` (azul de marca), `muteada`
+    usa `purple` (Tailwind por defecto, no es color de marca),
+    `resuelta` usa `slate` (mismo gris neutro ya usado para "Inactivo"
+    en la tabla de Puntos de Control).
+  - LIMITACIÓN CONOCIDA: `BitacoraAlertas` (backend) no tiene ninguna
+    columna de fecha/timestamp (ni `fecha_creacion` ni
+    `fecha_revision`), a diferencia de `SolicitudCambioPuntoControl`
+    que sí las tiene. La tarea pedía mostrar una columna "fecha" en la
+    tabla, pero no hay ese dato disponible desde el backend — se
+    omitió la columna en vez de inventar un valor. Agregar timestamps
+    a `BitacoraAlertas` requeriría una migración de Alembic, fuera de
+    alcance de esta tarea (frontend-only).
+  - Nuevas funciones en `src/lib/api.js`: `listarAlertas`,
+    `crearAlerta`, `mutearAlerta`, `escalarAlerta`, `resolverAlerta` —
+    mismo patrón que las demás.
+  - Nuevo hook `src/hooks/useAlertas.js` (fetch + `recargar()`, sin
+    polling, se re-ejecuta también cuando cambia el filtro de estado).

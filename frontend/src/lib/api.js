@@ -144,3 +144,42 @@ export function rechazarSolicitudCambio(token, solicitudId, comentario) {
     body: JSON.stringify({ comentario }),
   })
 }
+
+export function listarAlertas(token, estado) {
+  const query = estado ? `?estado=${encodeURIComponent(estado)}` : ""
+  return request(`/api/alertas${query}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function crearAlerta(token, datos) {
+  return request("/api/alertas", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(datos),
+  })
+}
+
+export function mutearAlerta(token, alertaId, observacionHse) {
+  return request(`/api/alertas/${alertaId}/mutear`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(observacionHse ? { observacion_hse: observacionHse } : {}),
+  })
+}
+
+export function escalarAlerta(token, alertaId, observacionHse) {
+  return request(`/api/alertas/${alertaId}/escalar`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(observacionHse ? { observacion_hse: observacionHse } : {}),
+  })
+}
+
+export function resolverAlerta(token, alertaId, observacionHse) {
+  return request(`/api/alertas/${alertaId}/resolver`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ observacion_hse: observacionHse }),
+  })
+}
