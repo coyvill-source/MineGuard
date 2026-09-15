@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -102,6 +103,7 @@ async def mutear_alerta(
     if datos.observacion_hse is not None:
         alerta.observacion_hse = datos.observacion_hse
     alerta.usuario_resolutor_id = usuario_actual.id
+    alerta.fecha_actualizacion = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(alerta)
@@ -127,6 +129,7 @@ async def escalar_alerta(
     if datos.observacion_hse is not None:
         alerta.observacion_hse = datos.observacion_hse
     alerta.usuario_resolutor_id = usuario_actual.id
+    alerta.fecha_actualizacion = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(alerta)
@@ -147,6 +150,7 @@ async def resolver_alerta(
     alerta.estado = EstadoAlerta.RESUELTA
     alerta.observacion_hse = datos.observacion_hse
     alerta.usuario_resolutor_id = usuario_actual.id
+    alerta.fecha_actualizacion = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(alerta)

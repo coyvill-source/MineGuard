@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.bitacora_alertas import EstadoAlerta
@@ -24,3 +26,5 @@ class AlertaRespuesta(BaseModel):
     estado: EstadoAlerta
     observacion_hse: str | None
     usuario_resolutor_id: int | None
+    fecha_creacion: datetime
+    fecha_actualizacion: datetime | None

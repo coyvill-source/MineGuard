@@ -546,3 +546,22 @@ duplicaciones y corrupción de contenido en el pasado.
   lista vacía sin explicación. La LIMITACIÓN CONOCIDA anterior (campo
   numérico manual, sin forma amigable de buscar telemetrías) queda
   resuelta con esta tarea.
+- DECISIÓN (2026-09-15): `BitacoraAlertas` gana dos columnas nuevas:
+  `fecha_creacion` (`DateTime(timezone=True)`, `server_default=now()`,
+  NOT NULL — se llena sola al crear, no requiere cambios en
+  `crear_alerta`) y `fecha_actualizacion` (`DateTime(timezone=True)`,
+  nullable — `NULL` hasta la primera gestión; `mutear_alerta`,
+  `escalar_alerta` y `resolver_alerta` en `app/api/alertas.py` ahora
+  la actualizan a `datetime.now(timezone.utc)` en cada llamada).
+  Migración `644c76760a40` generada (autogenerate, **sin aplicar aún —
+  pendiente de tu revisión**, ver el archivo completo en
+  `alembic/versions/644c76760a40_agregar_fecha_creacion_y_fecha_.py`).
+  Son columnas `DateTime`, no `Enum`, así que el bug conocido de
+  Alembic+Enum (que sí exige el fix manual visto en `9dd2b7ffdaeb`) no
+  aplica aquí — el autogenerate no se modificó.
+  `AlertaRespuesta` (`schemas/alerta.py`) ahora expone ambos campos.
+  Esto resuelve la LIMITACIÓN CONOCIDA documentada arriba sobre
+  `BitacoraAlertas` sin columnas de fecha — el frontend
+  (`TablaAlertas.jsx`) ya muestra `fecha_creacion` formateada en una
+  columna "Fecha" (mismo formato `toLocaleString("es-CO", ...)` usado
+  en `ModalReportarAlerta.jsx`).

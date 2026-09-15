@@ -1,6 +1,10 @@
 import { useState } from "react"
 import { ApiError, escalarAlerta, mutearAlerta, resolverAlerta } from "../../lib/api"
 
+function formatearFecha(iso) {
+  return new Date(iso).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })
+}
+
 // Paleta distinta a la del semaforo de nivel_alerta (verde/amarillo/rojo del
 // Dashboard) a proposito, para no confundir "estado de la lectura" con
 // "estado de gestion de la alerta" - ver docs/PROJECT_CONTEXT.md.
@@ -63,6 +67,7 @@ function FilaAlerta({ alerta, esGestor, token, onCambio }) {
         </span>
       </td>
       <td className="px-4 py-3 text-sm text-mg-navy-700">{alerta.observacion_hse || "—"}</td>
+      <td className="px-4 py-3 text-sm text-mg-navy-700">{formatearFecha(alerta.fecha_creacion)}</td>
       {esGestor && (
         <td className="px-4 py-3 text-right text-sm">
           {alerta.estado === "resuelta" ? (
@@ -146,6 +151,7 @@ function TablaAlertas({ alertas, esGestor, token, onCambio }) {
             <th className="px-4 py-3">Telemetría</th>
             <th className="px-4 py-3">Estado</th>
             <th className="px-4 py-3">Observación</th>
+            <th className="px-4 py-3">Fecha</th>
             {esGestor && <th className="px-4 py-3 text-right">Acciones</th>}
           </tr>
         </thead>
