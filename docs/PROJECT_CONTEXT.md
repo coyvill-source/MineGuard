@@ -867,6 +867,47 @@ pertenece.
       medido, dando 96.2%/96.2% de forma consistente en las 3
       resoluciones - la fórmula garantiza esa ocupación
       independientemente del aspecto, por construcción.
+- DECISIÓN (2026-09-16): octava ronda - se agregó una textura de fondo
+  sutil tipo "papel de plano técnico de ingeniería" (hachurado diagonal)
+  al panel de `PlanoPuntosControl.jsx`, para un acabado más "producido"
+  sin usar ninguna imagen externa ni literal (decisión ya tomada en
+  rondas previas: todo generado por el sistema).
+  - **Implementación**: un `<pattern id={idHachura}>` de SVG puro, con
+    una sola `<line>` vertical y `patternTransform="rotate(45)"` (tiling
+    diagonal sin calcular la diagonal a mano), en una capa `<rect>`
+    propia entre el color base del panel (`fill-mg-surface-50`) y la
+    capa del grid existente (`idGrid`) - el hachurado va DEBAJO del
+    grid para que la cuadrícula siga siendo la referencia visual
+    dominante.
+  - **Densidad y opacidad probadas** (mínimo 2 variaciones, pedido
+    explícito de la tarea): `escala.alto/30` (grueso, se leía casi como
+    un segundo grid, descartado), `escala.alto/55` con
+    `stroke-mg-navy-900/8` (aceptable pero aún se leía como líneas
+    individuales) y `escala.alto/90` con `stroke-mg-navy-900/8` +
+    `strokeWidth = escala.alto * 0.0016` (elegida: a esa densidad el
+    hachurado se funde con el grano del grid y se lee como textura de
+    papel, no como un segundo set de líneas). También se probó
+    `stroke-mg-navy-900/4` con stroke más fino (`* 0.0009`): resultó
+    prácticamente invisible en pantalla real, descartado.
+  - **Lección metodológica**: Tailwind v4 (JIT vía `@tailwindcss/vite`)
+    solo genera CSS para clases que existen literalmente en archivos
+    fuente al momento del build/dev - una clase inyectada en runtime vía
+    `element.className` en el DOM vivo (para probar opacidades
+    rápidamente) es un no-op silencioso si esa clase no aparece ya en
+    algún `.jsx`. Cualquier ajuste futuro de opacidad/stroke en
+    elementos SVG con clases de Tailwind debe probarse editando el
+    archivo fuente + recarga real (HMR de Vite), nunca inyectando clases
+    por `javascript_tool` en el DOM.
+  - Verificado en navegador real (login con usuario de prueba, datos
+    reales de la Estación Chicamocha): textura visible de cerca (zoom)
+    pero sutil a escala de panel completo; los 7 marcadores, chips,
+    túnel, rosa de los vientos y el portal de "Entrada" siguen
+    perfectamente legibles; tooltip funcional (click en punto muestra
+    datos correctos); sin errores de consola; probado en 1366×768 y con
+    la ventana redimensionada a 1920×1080 (el entorno de pruebas no
+    permitió una resolución panorámica completa de 2560×1080 por límite
+    de espacio visible de pantalla del entorno automatizado - no es una
+    limitación de la app).
 - MEJORA PENDIENTE (no bloqueante): el pipeline ML en
   POST /api/telemetria/ingesta-archivo ejecuta el escalado
   (scaler.transform) y la inferencia (model.predict) fila por fila, en

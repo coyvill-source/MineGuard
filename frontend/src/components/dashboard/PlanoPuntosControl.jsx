@@ -467,6 +467,7 @@ function PlanoPuntosControl({ puntos }) {
   const contenedorRef = useRef(null)
   const [activo, setActivo] = useState(null)
   const idGrid = useId()
+  const idHachura = useId()
   const idSombraMarcador = useId()
 
   // Alto EXPLICITO del panel (px), derivado SOLO del viewport - ver
@@ -527,6 +528,13 @@ function PlanoPuntosControl({ puntos }) {
   )
   const esquinaRosa = useMemo(() => elegirEsquinaRosa(escala, puntoEntrada), [escala, puntoEntrada])
   const pasoGrid = escala.alto / 20
+  // Paso del hachurado (mas fino que el grid, ver <pattern id={idHachura}>
+  // mas abajo) - probado contra escala.alto/30 (mas grueso, se leia casi
+  // como un segundo grid, competia con la cuadricula real) y /55 (ya
+  // aceptable, pero seguia leyendose como lineas) antes de quedarse en
+  // /90: a esa densidad se funde con el grano de la cuadricula y se lee
+  // como textura de papel, no como un segundo set de lineas.
+  const pasoHachura = escala.alto / 90
 
   const posicionRelativa = (evento) => {
     const contenedorRect = contenedorRef.current.getBoundingClientRect()
@@ -617,6 +625,35 @@ function PlanoPuntosControl({ puntos }) {
               strokeWidth={escala.alto * 0.0015}
             />
           </pattern>
+          {/* Hachurado tipo "papel de plano tecnico" (sombreado diagonal de
+              corte, como el que se usa en planos de ingenieria civil/minera)
+              - una sola linea por celda del pattern, rotada 45 grados via
+              `patternTransform` (asi tiling seamless sin tener que calcular
+              la diagonal a mano). Mas fina que el grid (`pasoHachura` vs
+              `pasoGrid`) para que se lea como TEXTURA de fondo, nunca como
+              una segunda cuadricula - va DEBAJO del grid (dibujada primero,
+              ver los <rect> mas abajo) para que la cuadricula real siga
+              siendo la referencia visual dominante. La opacidad `/8` (vs
+              `/5` del grid) se ve mas alta en el numero, pero combinada con
+              el paso mas fino da un resultado mas sutil en pantalla que el
+              grid mismo - probado en navegador real: `/4` con stroke mas
+              fino resultaba practicamente invisible. */}
+          <pattern
+            id={idHachura}
+            width={pasoHachura}
+            height={pasoHachura}
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <line
+              x1={0}
+              y1={0}
+              x2={0}
+              y2={pasoHachura}
+              className="stroke-mg-navy-900/8"
+              strokeWidth={escala.alto * 0.0016}
+            />
+          </pattern>
           {/* Sombra sutil de los marcadores - los "levanta" del fondo. Usa
               flood-color vía CSS custom property (los presentation
               attributes de un filtro SVG no se pueden expresar con clases
@@ -631,8 +668,16 @@ function PlanoPuntosControl({ puntos }) {
           </filter>
         </defs>
 
-        {/* Fondo "papel tecnico": base clara + grid fino, decorativo. */}
+        {/* Fondo "papel tecnico": base clara + hachurado + grid fino,
+            decorativo, en ese orden (cada capa encima de la anterior). */}
         <rect x={escala.minX} y={escala.minY} width={escala.ancho} height={escala.alto} className="fill-mg-surface-50" />
+        <rect
+          x={escala.minX}
+          y={escala.minY}
+          width={escala.ancho}
+          height={escala.alto}
+          fill={`url(#${idHachura})`}
+        />
         <rect
           x={escala.minX}
           y={escala.minY}
