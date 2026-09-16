@@ -3,15 +3,44 @@ import { useEffect, useId, useMemo, useRef, useState } from "react"
 const RADIO_RATIO = 0.039
 const ASPECTO_POR_DEFECTO = 16 / 9
 
+// Limites del aspecto ancho:alto del CONTENEDOR (no del viewBox - ver
+// calcularAspectoContenedor). Sin limites, un conjunto de puntos casi
+// cuadrado forzaria un panel casi cuadrado (poco "panorama") y uno muy
+// alargado forzaria un panel absurdamente ancho o alto. El piso garantiza
+// que el panel siempre se lea como "mas ancho que alto"; el techo evita que
+// crezca demasiado en pantallas ultra anchas (ver DECISIÓN en
+// docs/PROJECT_CONTEXT.md).
+const ASPECTO_CONTENEDOR_MIN = 1.4
+const ASPECTO_CONTENEDOR_MAX = 2.0
+
 // Margenes de encuadre, en multiplos de `radio` (ver calcularEscala): no son
 // un porcentaje arbitrario, son la huella real que cada elemento decorativo
 // necesita para no cortarse. Se documentan uno por uno porque cada valor
 // esta calibrado contra el tamaño real del elemento que protege - si se
 // cambia el tamaño de un elemento (el portal, el chip, la rosa), hay que
 // revisar el margen correspondiente.
-const MARGEN_LATERAL = 2.0 // marcador agrandado en hover/foco (radio*1.3) + su stroke, y tambien el radio que usa la rosa de los vientos en su esquina (ver elegirEsquinaRosa)
+const MARGEN_LATERAL = 2.15 // marcador agrandado en hover/foco (radio*1.3) + su stroke, y tambien el radio que usa la rosa de los vientos en su esquina (ver elegirEsquinaRosa) - subio de 2.0 a 2.15 al agrandar la rosa
 const MARGEN_PORTAL = 3.6 // alcance vertical del portal de "Entrada" (arco + etiqueta de texto) sobre el punto "0"
 const MARGEN_CHIP = 2.5 // alcance del chip de etiqueta debajo de cada punto
+
+// Aspecto (ancho/alto) del CONTENEDOR calculado dinamicamente a partir del
+// bounding box real de los puntos, no de breakpoints fijos (4/3, 16/9,
+// 21/9 como en la ronda anterior). Los puntos reales se distribuyen en
+// diagonal con mas extension horizontal que vertical; forzar el panel a un
+// aspecto panoramico fijo (ej. 21/9) dejaba las esquinas opuestas a esa
+// diagonal (arriba-izquierda, abajo-derecha) visiblemente vacias, porque el
+// contenido (ya ajustado en la ronda anterior, ver MARGEN_*) es bastante
+// mas cuadrado que un aspecto panoramico. Usar el aspecto real de los datos
+// hace que el panel "abrace" la forma del contenido - ver DECISIÓN en
+// docs/PROJECT_CONTEXT.md para la justificacion completa del piso/techo.
+function calcularAspectoContenedor(puntos) {
+  const xs = puntos.map((p) => p.coord_x)
+  const ys = puntos.map((p) => p.coord_y)
+  const extentX = Math.max(...xs) - Math.min(...xs) || 1
+  const extentY = Math.max(...ys) - Math.min(...ys) || 1
+  const bruto = extentX / extentY
+  return Math.min(Math.max(bruto, ASPECTO_CONTENEDOR_MIN), ASPECTO_CONTENEDOR_MAX)
+}
 
 const ESTILO_POR_NIVEL = {
   optimo: { marcador: "fill-mg-safe-500 stroke-mg-safe-500", etiqueta: "Óptimo" },
@@ -238,20 +267,24 @@ function elegirEsquinaRosa(escala, puntoEntrada) {
 // mas largo/prominente que el eje E-O, como en una rosa nautica real) + eje
 // central + etiquetas N/S/E/O. Tamaño proporcional a escala.radio, nunca al
 // ancho/alto del viewBox, para que se vea igual sin importar el aspecto.
+// Radio subido de 1.4 a 1.65 y anillo/borde reforzados (ronda 3: se veia
+// "pequeña y perdida" en la esquina) - MARGEN_LATERAL se subio junto con
+// este cambio para que siga cabiendo sin chocar ni recortarse (ver
+// calcularEscala/elegirEsquinaRosa).
 function RosaDeLosVientos({ escala, cx, cy }) {
-  const radio = escala.radio * 1.4
+  const radio = escala.radio * 1.65
 
   return (
     <g className="pointer-events-none select-none" aria-hidden="true">
-      <circle cx={cx} cy={cy} r={radio * 1.15} className="fill-mg-navy-900/5" />
-      <circle cx={cx} cy={cy} r={radio} className="fill-white/85 stroke-mg-navy-800/35" strokeWidth={radio * 0.05} />
+      <circle cx={cx} cy={cy} r={radio * 1.15} className="fill-mg-navy-900/8" />
+      <circle cx={cx} cy={cy} r={radio} className="fill-white/90 stroke-mg-navy-800/50" strokeWidth={radio * 0.08} />
       <circle
         cx={cx}
         cy={cy}
         r={radio * 0.82}
         fill="none"
-        className="stroke-mg-navy-800/20"
-        strokeWidth={radio * 0.03}
+        className="stroke-mg-navy-800/30"
+        strokeWidth={radio * 0.045}
       />
       <path
         d={`M ${cx} ${cy - radio * 0.82} L ${cx + radio * 0.16} ${cy} L ${cx} ${cy + radio * 0.82} L ${cx - radio * 0.16} ${cy} Z`}
@@ -312,6 +345,10 @@ function RosaDeLosVientos({ escala, cx, cy }) {
 // marcador (nunca lo tapa - el semaforo de nivel de alerta sigue siendo el
 // elemento funcional) + etiqueta "Entrada". Esquematica, no geometria real
 // medida - ver docs/PROJECT_CONTEXT.md.
+//
+// Usa mg-accent (azul de marca), no mg-navy: con navy a baja opacidad el
+// portal se leia casi igual de gris que los marcadores "sin datos"
+// (slate), y el punto "0" es una referencia especial, no un sensor mas.
 function MarcaEntrada({ punto, radio }) {
   const cx = punto.coord_x
   const cy = punto.coord_y
@@ -329,14 +366,14 @@ function MarcaEntrada({ punto, radio }) {
       <path
         d={`M ${leftX} ${postTopY + alto * 0.28} L ${leftX + ancho * 0.15} ${postTopY}`}
         fill="none"
-        className="stroke-mg-navy-800/35"
+        className="stroke-mg-accent-500/50"
         strokeWidth={radio * 0.09}
         strokeLinecap="round"
       />
       <path
         d={`M ${rightX} ${postTopY + alto * 0.28} L ${rightX - ancho * 0.15} ${postTopY}`}
         fill="none"
-        className="stroke-mg-navy-800/35"
+        className="stroke-mg-accent-500/50"
         strokeWidth={radio * 0.09}
         strokeLinecap="round"
       />
@@ -344,7 +381,7 @@ function MarcaEntrada({ punto, radio }) {
       <path
         d={`M ${leftX} ${postTopY} L ${rightX} ${postTopY}`}
         fill="none"
-        className="stroke-mg-navy-800/40"
+        className="stroke-mg-accent-500/60"
         strokeWidth={radio * 0.14}
         strokeLinecap="round"
       />
@@ -356,7 +393,7 @@ function MarcaEntrada({ punto, radio }) {
             Q ${rightX} ${archPeakY} ${rightX} ${postTopY}
             L ${rightX} ${postBottomY}`}
         fill="none"
-        className="stroke-mg-navy-800/55"
+        className="stroke-mg-accent-600/80"
         strokeWidth={radio * 0.22}
         strokeLinecap="round"
       />
@@ -364,7 +401,7 @@ function MarcaEntrada({ punto, radio }) {
         x={cx}
         y={archPeakY - radio * 0.25}
         textAnchor="middle"
-        className="fill-mg-navy-800 font-semibold"
+        className="fill-mg-accent-600 font-semibold"
         style={{ fontSize: radio * 0.5 }}
       >
         Entrada
@@ -407,13 +444,22 @@ function PlanoPuntosControl({ puntos }) {
   const idGrid = useId()
   const idSombraMarcador = useId()
 
-  // El contenedor tiene un aspecto CSS responsivo (aspect-[4/3] en angosto,
-  // hasta aspect-[21/9] en pantallas muy anchas - ver clases más abajo). En
-  // vez de fijar el viewBox como cuadrado y dejar que el SVG "encoja" para
-  // caber (lo que deja franjas vacías a los lados), medimos el aspecto real
-  // del contenedor y se lo pasamos a calcularEscala para que el viewBox
-  // coincida exactamente: el plano llena todo el panel sin recortarse ni
-  // dejar espacio vacío.
+  // Aspecto del CONTENEDOR calculado del bounding box real de los puntos
+  // (ver calcularAspectoContenedor), aplicado como `aspectRatio` inline más
+  // abajo. El contenedor ya no usa breakpoints fijos (4/3, 16/9, 21/9): el
+  // panel ahora "abraza" la forma real de los datos, más cuadrada que un
+  // aspecto panorámico, en vez de forzar un panorama que dejaba las
+  // esquinas opuestas a la diagonal de los puntos visiblemente vacías.
+  //
+  // El ResizeObserver sigue midiendo el aspecto REAL ya renderizado del
+  // contenedor (no simplemente confiar en el valor calculado) y se lo pasa
+  // a calcularEscala para que el viewBox coincida exactamente: es la misma
+  // red de seguridad de la ronda anterior, por si el navegador no puede
+  // honrar el `aspectRatio` CSS al pixel exacto (restricciones de layout,
+  // redondeo) - así el viewBox nunca queda desalineado con el tamaño real
+  // renderizado, sin importar la causa.
+  const aspectoContenedor = useMemo(() => calcularAspectoContenedor(puntos), [puntos])
+
   useEffect(() => {
     const elemento = contenedorRef.current
     if (!elemento) return
@@ -477,7 +523,15 @@ function PlanoPuntosControl({ puntos }) {
   return (
     <div
       ref={contenedorRef}
-      className="relative aspect-[4/3] w-full overflow-visible rounded-2xl border border-mg-surface-100 bg-white p-3 shadow-md shadow-mg-navy-900/8 ring-1 ring-mg-navy-900/5 transition-shadow duration-200 hover:shadow-lg hover:shadow-mg-navy-900/10 xl:aspect-[16/9] xl:p-4 2xl:aspect-[21/9]"
+      // Sombra alineada con el estandar de "tarjeta elevada" que ya usan
+      // Login/Registro/OlvidePassword/ResetPassword y el gate de sesion de
+      // DashboardLayout (`shadow-lg shadow-mg-navy-900/5`, mismo token de
+      // color en toda la app) - aqui un escalon mas marcado (`shadow-xl` +
+      // /10 en vez de /5) porque el plano es el elemento visual mas
+      // importante del dashboard y debe sentirse claramente elevado, sin
+      // introducir un color de sombra nuevo.
+      className="relative w-full overflow-visible rounded-2xl border border-mg-surface-100 bg-white p-3 shadow-xl shadow-mg-navy-900/10 ring-1 ring-mg-navy-900/5 transition-shadow duration-200 hover:shadow-2xl hover:shadow-mg-navy-900/15 xl:p-4"
+      style={{ aspectRatio: aspectoContenedor }}
       onClick={() => setActivo((actual) => (actual?.fijado ? null : actual))}
     >
       <svg
@@ -502,9 +556,9 @@ function PlanoPuntosControl({ puntos }) {
           <filter id={idSombraMarcador} x="-60%" y="-60%" width="220%" height="220%">
             <feDropShadow
               dx="0"
-              dy={escala.radio * 0.09}
-              stdDeviation={escala.radio * 0.11}
-              style={{ floodColor: "var(--color-mg-navy-900)", floodOpacity: 0.35 }}
+              dy={escala.radio * 0.14}
+              stdDeviation={escala.radio * 0.17}
+              style={{ floodColor: "var(--color-mg-navy-900)", floodOpacity: 0.5 }}
             />
           </filter>
         </defs>

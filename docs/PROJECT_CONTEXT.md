@@ -409,6 +409,78 @@ pertenece.
     (confirmado numéricamente con `getBBox()` de todos los elementos
     contra el `viewBox`), tooltip funcional (hover/click), sin errores
     de consola.
+- DECISIÓN (2026-09-16): tercera ronda de pulido visual de
+  `PlanoPuntosControl.jsx`, con 5 ajustes aprobados tras otra revisión
+  de captura real. Sin romper tooltip, semáforo, estructura del
+  túnel, ancho completo ni ningún elemento de las rondas 1 y 2
+  (chips, ícono de sensor, portal, doble línea del túnel) - verificado
+  en navegador real, ancho y angosto (detalle al final).
+  - **1. Aspecto del panel calculado del bounding box real (ya no
+    breakpoints fijos)**: los puntos reales se distribuyen en diagonal
+    (más extensión horizontal que vertical, pero solo levemente:
+    extentX/extentY ≈ 1.16 con los datos de la Estación Chicamocha),
+    lo que con el aspecto panorámico fijo de la ronda anterior
+    (`aspect-[4/3] xl:aspect-[16/9] 2xl:aspect-[21/9]`) dejaba las
+    esquinas opuestas a esa diagonal (arriba-izquierda,
+    abajo-derecha) visiblemente vacías - el contenido real (ya
+    ajustado en la ronda 2) es bastante más cuadrado que un aspecto
+    panorámico. `calcularAspectoContenedor(puntos)` calcula
+    `extentX/extentY` del bounding box real y lo usa como
+    `aspectRatio` CSS del contenedor (reemplaza las clases de
+    Tailwind), acotado entre `ASPECTO_CONTENEDOR_MIN=1.4` (piso, para
+    que el panel siempre se lea claramente "más ancho que alto" aunque
+    el dato bruto sea más cuadrado - con los datos reales el bruto es
+    1.16, así que hoy siempre cae en este piso) y
+    `ASPECTO_CONTENEDOR_MAX=2.0` (techo, evita que crezca
+    desproporcionadamente en pantallas ultra anchas si en el futuro
+    los puntos llegan a distribuirse mucho más horizontalmente). El
+    `ResizeObserver` de la ronda anterior sigue midiendo el aspecto ya
+    renderizado del contenedor como red de seguridad (si el navegador
+    no puede honrar el `aspectRatio` exacto), y se lo sigue pasando a
+    `calcularEscala` sin cambios - el ajuste de encuadre/margen de la
+    ronda 2 (`MARGEN_LATERAL`/`MARGEN_PORTAL`/`MARGEN_CHIP`) se
+    mantuvo intacto. Verificado con `getBBox()`: el espacio sobrante
+    en el lado sin rosa bajó de 159 unidades (a 21:9) a ~50 unidades
+    (a 1.4:1) con los mismos datos reales.
+  - **2. Sombra envolvente del panel**: se revisó el resto del sistema
+    de diseño - Login/Registro/OlvidePassword/ResetPassword y el gate
+    de sesión de `DashboardLayout` usan todos `shadow-lg
+    shadow-mg-navy-900/5` (mismo token de color en toda la app, "carta
+    elevada" estándar). El panel del plano subió de `shadow-md
+    shadow-mg-navy-900/8` a `shadow-xl shadow-mg-navy-900/10` (con
+    `hover:shadow-2xl hover:shadow-mg-navy-900/15`) - un escalón más
+    marcado que el estándar de la app porque es el elemento visual más
+    importante del dashboard, pero usando el mismo token de color
+    (`mg-navy-900`), no un color nuevo.
+  - **3. Color distintivo del ícono de "Entrada"**: `MarcaEntrada`
+    (el portal sobre el punto "0") usaba `stroke-mg-navy-800` a baja
+    opacidad, que a simple vista se leía casi igual de gris que los
+    marcadores "sin datos" (`slate`). Se cambió a `mg-accent`
+    (azul de marca: `accent-600` para el marco/texto, `accent-500`
+    para el dintel y las riostras) - el punto "0" es una referencia
+    especial, no otro sensor sin lecturas.
+  - **4. Sombra de los marcadores más marcada**: el `feDropShadow` de
+    la ronda anterior (`dy=radio*0.09`, `stdDeviation=radio*0.11`,
+    `floodOpacity=0.35`) era casi imperceptible en pantalla real. Subió
+    a `dy=radio*0.14`, `stdDeviation=radio*0.17`,
+    `floodOpacity=0.5` - más blur y más opacidad, sin cambiar el color
+    (sigue `var(--color-mg-navy-900)`).
+  - **5. Rosa de los vientos más prominente**: su multiplicador de
+    radio subió de 1.4 a 1.65 (moderado, no compite con los
+    marcadores de punto de control) y se reforzó su anillo/borde:
+    círculo base `stroke-mg-navy-800/35→/50` con grosor `0.05→0.08`,
+    anillo bisel `/20→/30` con grosor `0.03→0.045`, halo de fondo
+    `mg-navy-900/5→/8`. Como la rosa creció,
+    `MARGEN_LATERAL` (que también fija cuánto se aleja la rosa del
+    borde en `elegirEsquinaRosa`, reutilizando la misma lógica de la
+    ronda anterior) subió de 2.0 a 2.15 para que siga cabiendo sin
+    chocar ni recortarse contra el borde del `viewBox`.
+  - Verificación en navegador real: ancho (~1254px) y angosto (395px,
+    mismo método de iframe real que en rondas anteriores) - confirmado
+    con `getBBox()` que nada se recorta en ninguno de los dos extremos
+    (márgenes positivos en los 4 lados), `aspectRatio` computado
+    confirmado en ambos (`1.4/1`, el piso, con los datos reales),
+    tooltip funcional (hover/click), sin errores de consola.
 - MEJORA PENDIENTE (no bloqueante): el pipeline ML en
   POST /api/telemetria/ingesta-archivo ejecuta el escalado
   (scaler.transform) y la inferencia (model.predict) fila por fila, en
