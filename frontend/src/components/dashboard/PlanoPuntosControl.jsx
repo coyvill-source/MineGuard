@@ -1,34 +1,11 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { calcularAltoDisponible } from "../../lib/layoutPlano"
 
-// Subido de 0.039 a 0.05 (ronda 6): con el aspecto del viewBox ya
-// acotado (ver ASPECTO_VIEWBOX_MAX) los marcadores/túnel/chips seguían
-// viéndose chicos - este factor los agranda relativo a la extensión
-// real de los puntos, sin afectar el encuadre (los MARGEN_* de abajo
-// son múltiplos de `radio`, así que escalan junto con él automáticamente).
 const RADIO_RATIO = 0.05
 // Aspecto de respaldo para el primer render, antes de que el
 // ResizeObserver mida el aspecto real del contenedor ya pintado (ver
 // PlanoPuntosControl). Solo importa por una fracción de segundo.
 const ASPECTO_POR_DEFECTO = 16 / 9
-
-// Límite del aspecto ancho:alto que puede tomar el VIEWBOX (el área
-// realmente dibujada: fondo de papel técnico + túnel + marcadores) - NO
-// es el aspecto del panel/contenedor, que sigue siendo ancho completo sin
-// límite (ver PlanoPuntosControl). Medido en navegador real: sin este
-// límite, el viewBox se estiraba para igualar EXACTO el aspecto del panel
-// (hasta 3.7:1 en pantallas panorámicas), y como los puntos reales son
-// casi cuadrados (~1.05:1), el contenido terminaba ocupando solo ~27% del
-// ancho del viewBox - "un dibujo chico perdido en un lienzo grande",
-// justo la queja del usuario. Con este límite, cuando el panel es más
-// ancho que `ASPECTO_VIEWBOX_MAX`, el `<svg>` deja de estirarse hasta ahí
-// y en cambio se centra dentro del panel vía `preserveAspectRatio` (el
-// panel SIGUE siendo ancho completo - lo que cambia es que el dibujo dentro
-// de él pasa a verse como una lámina bien proporcionada en vez de una tira
-// estirada). 1.5 se eligió por quedar cerca del aspecto real de los datos
-// (~1.05-1.16 según la estación) con algo de aire, sin volverse casi
-// cuadrado. Ver DECISIÓN en docs/PROJECT_CONTEXT.md.
-const ASPECTO_VIEWBOX_MAX = 1.5
 
 // Margenes de encuadre, en multiplos de `radio` (ver calcularEscala): no son
 // un porcentaje arbitrario, son la huella real que cada elemento decorativo
@@ -50,31 +27,44 @@ const ESTILO_SIN_DATOS = { marcador: "fill-slate-400 stroke-slate-500", etiqueta
 // El plano es esquemático (no hay imagen de fondo real de la mina): coord_x
 // y coord_y se ubican tal cual en el plano cartesiano, sin invertir el eje Y.
 //
+// Respiro extra (mas alla del margen ya calculado por MARGEN_*) para que el
+// contenido no quede pegado al borde exacto del panel.
+const AIRE_RATIO = 0.04
+
 // `aspecto` (ancho/alto) es el aspecto REAL del contenedor en pantalla
-// (medido con ResizeObserver), pero se le aplica un tope
-// (`ASPECTO_VIEWBOX_MAX`, ver arriba) antes de usarlo: sin tope, el viewBox
-// coincidía exacto con el aspecto del panel (correcto para evitar
-// franjas vacías en pantallas moderadamente panorámicas), pero en
-// pantallas MUY panorámicas dejaba el contenido (casi cuadrado) ocupando
-// una fracción mínima del ancho - el tope prioriza que el contenido se
-// vea grande y bien proporcionado por encima de que el `<svg>` llene el
-// 100% del ancho del panel en esos casos extremos (el panel en sí sigue
-// siendo ancho completo - ver DECISIÓN en docs/PROJECT_CONTEXT.md).
+// (medido con ResizeObserver) - ya NO se acota (a diferencia de la ronda
+// anterior, ver DECISIÓN en docs/PROJECT_CONTEXT.md): el viewBox coincide
+// EXACTO con el aspecto del panel, siempre, sin excepcion.
 //
-// El encuadre se calcula en dos pasos: primero `radio` (tamaño de marcador)
-// sale de la extensión real de los puntos (`extentRaw`), sin importar el
-// aspecto ni el margen. Después, el cuadro de contenido se arma punto por
-// punto sumando el margen que cada uno realmente necesita en cada dirección
-// (lateral en todos, más margen arriba SOLO para el punto "0" por el portal
-// de "Entrada", más margen abajo en todos por el chip de etiqueta) - en vez
-// de un porcentaje fijo de padding, que dejaba huecos grandes en los lados
-// que no tienen ningún elemento decorativo que proteger.
+// La clave de esta ronda es que ya no se usa un unico factor de escala
+// isotropico para todo: las POSICIONES de los puntos (donde cae cada uno
+// en el plano) se escalan con dos factores INDEPENDIENTES, `escalaX` y
+// `escalaY`, cada uno ajustado para aprovechar el ancho/alto completos del
+// viewBox - eso es lo que permite llenar un panel panoramico con datos que
+// no lo son, sin dejar franjas vacias a los lados (el problema de la ronda
+// anterior). El TAMAÑO de cada elemento (radio del marcador, grosor de
+// linea, chip, rosa, portal) usa un tercer factor, `radio`, UNIFORME
+// (el menor de escalaX/escalaY) para que nada se vea estirado ni aplastado
+// - los marcadores siguen siendo circulos perfectos.
+//
+// El encuadre se calcula en varios pasos: primero `radioRaw` (tamaño de
+// marcador en unidades "crudas", antes de cualquier escalado de posicion)
+// sale de la extension real de los puntos (`extentRaw`). Despues, el
+// cuadro de contenido (en esas mismas unidades crudas) se arma punto por
+// punto sumando el margen que cada uno realmente necesita en cada
+// direccion (lateral en todos, mas margen arriba SOLO para el punto "0"
+// por el portal de "Entrada", mas margen abajo en todos por el chip de
+// etiqueta). Recien ahi se calculan escalaX/escalaY (cuanto hay que
+// estirar ese cuadro crudo en cada eje para llenar el viewBox) y se
+// transforman las posiciones de los puntos a ese nuevo espacio - el resto
+// del componente (tunel, marcadores, chips, rosa, portal) dibuja usando
+// esas posiciones YA transformadas, nunca las crudas.
 function calcularEscala(puntos, aspecto = 1) {
   const xsRaw = puntos.map((p) => p.coord_x)
   const ysRaw = puntos.map((p) => p.coord_y)
   const extentRaw =
     Math.max(Math.max(...xsRaw) - Math.min(...xsRaw), Math.max(...ysRaw) - Math.min(...ysRaw)) || 1
-  const radio = extentRaw * RADIO_RATIO
+  const radioRaw = extentRaw * RADIO_RATIO
 
   let minX = Infinity
   let maxX = -Infinity
@@ -83,27 +73,57 @@ function calcularEscala(puntos, aspecto = 1) {
 
   for (const p of puntos) {
     const esEntrada = p.nombre_estacion === "0"
-    minX = Math.min(minX, p.coord_x - radio * MARGEN_LATERAL)
-    maxX = Math.max(maxX, p.coord_x + radio * MARGEN_LATERAL)
-    minY = Math.min(minY, p.coord_y - radio * (esEntrada ? MARGEN_PORTAL : MARGEN_LATERAL))
-    maxY = Math.max(maxY, p.coord_y + radio * MARGEN_CHIP)
+    minX = Math.min(minX, p.coord_x - radioRaw * MARGEN_LATERAL)
+    maxX = Math.max(maxX, p.coord_x + radioRaw * MARGEN_LATERAL)
+    minY = Math.min(minY, p.coord_y - radioRaw * (esEntrada ? MARGEN_PORTAL : MARGEN_LATERAL))
+    maxY = Math.max(maxY, p.coord_y + radioRaw * MARGEN_CHIP)
   }
 
-  const centroX = (minX + maxX) / 2
-  const centroY = (minY + maxY) / 2
-  const base = Math.max(maxX - minX, maxY - minY)
+  const centroXRaw = (minX + maxX) / 2
+  const centroYRaw = (minY + maxY) / 2
+  // "+ AIRE_RATIO": un respiro parejo en ambos ejes, mas alla del margen ya
+  // incluido arriba, para que el contenido no toque el borde exacto.
+  const anchoContenidoRaw = (maxX - minX) * (1 + AIRE_RATIO) || 1
+  const altoContenidoRaw = (maxY - minY) * (1 + AIRE_RATIO) || 1
 
-  // Acotar el aspecto ANTES de derivar ancho/alto - ver ASPECTO_VIEWBOX_MAX.
-  const aspectoAcotado = Math.min(Math.max(aspecto, 1 / ASPECTO_VIEWBOX_MAX), ASPECTO_VIEWBOX_MAX)
-  const ancho = aspectoAcotado >= 1 ? base * aspectoAcotado : base
-  const alto = aspectoAcotado >= 1 ? base : base / aspectoAcotado
+  // El viewBox toma el aspecto EXACTO del panel: alto = altoContenidoRaw
+  // (referencia, sin estirar) y ancho = alto * aspecto (llena el ancho
+  // real disponible). Esta misma formula funciona sin distinguir casos
+  // aunque el panel termine siendo mas angosto que alto que el contenido
+  // (aspecto < 1): ahi escalaX simplemente da menor a 1 (comprime en vez
+  // de estirar), en vez de necesitar una rama aparte.
+  const alto = altoContenidoRaw
+  const ancho = alto * aspecto
+
+  const escalaX = ancho / anchoContenidoRaw
+  const escalaY = alto / altoContenidoRaw // == 1 siempre, por construccion - explicito por claridad
+  // Factor de TAMAÑO, uniforme (nunca ancho/alto por separado): el menor
+  // de los dos factores de posicion, para que un marcador nunca termine
+  // mas grande que el espacio que la propia distribucion de puntos le deja
+  // en su eje mas comprimido - así los círculos siguen siendo círculos.
+  const radio = radioRaw * Math.min(escalaX, escalaY)
+
+  // `coordXOriginal`/`coordYOriginal` conservan las coordenadas reales de
+  // topografía (las que llegan por props) - el tooltip las muestra tal
+  // cual (ver TooltipContenido), nunca las transformadas: `coord_x`/
+  // `coord_y` de aquí en adelante son posiciones de DIBUJO, no datos.
+  const puntosTransformados = puntos.map((p) => ({
+    ...p,
+    coord_x: (p.coord_x - centroXRaw) * escalaX,
+    coord_y: (p.coord_y - centroYRaw) * escalaY,
+    coordXOriginal: p.coord_x,
+    coordYOriginal: p.coord_y,
+  }))
 
   return {
-    minX: centroX - ancho / 2,
-    minY: centroY - alto / 2,
+    minX: -ancho / 2,
+    minY: -alto / 2,
     ancho,
     alto,
     radio,
+    escalaX,
+    escalaY,
+    puntosTransformados,
   }
 }
 
@@ -216,7 +236,7 @@ function TooltipContenido({ punto }) {
     <div>
       <p className="text-sm font-bold text-mg-navy-900">Punto {punto.nombre_estacion}</p>
       <p className="mt-0.5 text-xs text-mg-navy-700">
-        x: {formatearNumero(punto.coord_x, 1)} · y: {formatearNumero(punto.coord_y, 1)} · z:{" "}
+        x: {formatearNumero(punto.coordXOriginal, 1)} · y: {formatearNumero(punto.coordYOriginal, 1)} · z:{" "}
         {formatearNumero(punto.coord_z, 1)}
       </p>
 
@@ -461,11 +481,13 @@ function PlanoPuntosControl({ puntos }) {
 
   // Aspecto REAL ya renderizado del contenedor (ancho completo x alto fijo
   // de arriba), medido con ResizeObserver - se le pasa a calcularEscala
-  // para que el viewBox coincida exactamente con esa caja (ancho x alto),
-  // sin importar la forma de los datos: el SVG se adapta a la caja
-  // disponible, la caja no se adapta a los datos (eso es justamente lo que
-  // pidió esta ronda). Mismo mecanismo que ya se uso para eliminar el
-  // letterboxing hace varias rondas, solo que ahora ambas dimensiones de
+  // para que el viewBox coincida exactamente con esa caja (ancho x alto).
+  // calcularEscala usa este aspecto para escalar las POSICIONES de los
+  // puntos en X y en Y con factores independientes (ver comentario ahí) -
+  // así el contenido llena la caja disponible sin importar su forma,
+  // en vez de la caja adaptarse a la forma de los datos. Mismo mecanismo
+  // que ya se uso para eliminar el letterboxing hace varias rondas, solo
+  // que ahora ambas dimensiones de
   // la caja son explicitas (ancho completo, alto sin scroll) en vez de
   // depender de un `aspect-ratio` CSS.
   const [aspecto, setAspecto] = useState(ASPECTO_POR_DEFECTO)
@@ -489,9 +511,20 @@ function PlanoPuntosControl({ puntos }) {
     }
   }, [])
 
+  // El tunel, la busqueda del punto "0" y el dibujo de marcadores usan
+  // `escala.puntosTransformados` (posiciones YA escaladas con escalaX/
+  // escalaY, ver calcularEscala) - nunca los `puntos` crudos que llegan
+  // por props, que estan en el sistema de coordenadas original (sin
+  // relacion directa con el viewBox).
   const escala = useMemo(() => calcularEscala(puntos, aspecto), [puntos, aspecto])
-  const estructuraTunel = useMemo(() => construirEstructuraTunel(puntos), [puntos])
-  const puntoEntrada = useMemo(() => puntos.find((p) => p.nombre_estacion === "0") ?? null, [puntos])
+  const estructuraTunel = useMemo(
+    () => construirEstructuraTunel(escala.puntosTransformados),
+    [escala],
+  )
+  const puntoEntrada = useMemo(
+    () => escala.puntosTransformados.find((p) => p.nombre_estacion === "0") ?? null,
+    [escala],
+  )
   const esquinaRosa = useMemo(() => elegirEsquinaRosa(escala, puntoEntrada), [escala, puntoEntrada])
   const pasoGrid = escala.alto / 20
 
@@ -565,11 +598,11 @@ function PlanoPuntosControl({ puntos }) {
     >
       <svg
         viewBox={`${escala.minX} ${escala.minY} ${escala.ancho} ${escala.alto}`}
-        // "xMidYMid meet" (el default, ahora explícito): cuando el aspecto
-        // del panel excede ASPECTO_VIEWBOX_MAX, el viewBox queda más
-        // angosto que el panel y el navegador centra el dibujo dejando
-        // margen del propio fondo del panel (bg-white) a los lados, en vez
-        // de estirar el contenido para llenar el ancho completo.
+        // "xMidYMid meet" (el default, explícito por claridad): el viewBox
+        // ahora coincide EXACTO con el aspecto real del panel siempre (ver
+        // calcularEscala), así que esto ya no letterboxea en la práctica -
+        // se deja como red de seguridad ante cualquier desajuste momentáneo
+        // entre el aspecto medido y el renderizado.
         preserveAspectRatio="xMidYMid meet"
         className="h-full w-full"
         role="img"
@@ -658,7 +691,7 @@ function PlanoPuntosControl({ puntos }) {
         <RosaDeLosVientos escala={escala} cx={esquinaRosa.x} cy={esquinaRosa.y} />
         {puntoEntrada && <MarcaEntrada punto={puntoEntrada} radio={escala.radio} />}
 
-        {puntos.map((punto) => {
+        {escala.puntosTransformados.map((punto) => {
           const estilo = punto.ultima_lectura
             ? (ESTILO_POR_NIVEL[punto.ultima_lectura.nivel_alerta] ?? ESTILO_SIN_DATOS)
             : ESTILO_SIN_DATOS

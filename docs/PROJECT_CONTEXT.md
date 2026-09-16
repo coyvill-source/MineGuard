@@ -744,6 +744,129 @@ pertenece.
       (aspecto de panel < 1, caso de panel angosto y muy alto): el
       aspecto se acota hacia arriba a `1/1.5 ≈ 0.667`, dando 100% de
       ocupación en ancho y 64.5% en alto - correcto y simétrico.
+- DECISIÓN (2026-09-16): séptima ronda - la ronda anterior acotó el
+  aspecto del `viewBox` (`ASPECTO_VIEWBOX_MAX = 1.5`) para que el
+  contenido no quedara diminuto, pero como consecuencia el `<svg>`
+  dejaba de estirarse hasta el ancho real del panel en pantallas
+  panorámicas, mostrando margen blanco genuino a los lados (letterbox)
+  - confirmado con captura real del usuario, quien señaló que ESE
+  margen (el mismo que la ronda anterior introdujo a propósito) también
+  se sentía como espacio vacío a los lados. El problema de fondo: un
+  solo factor de escala ISOTRÓPICO (igual en X y en Y, para no
+  deformar los marcadores) obliga a elegir entre "el viewBox llena el
+  panel pero el contenido queda chico" o "el contenido llena el viewBox
+  pero el viewBox no llena el panel" - nunca ambas cosas con un único
+  factor, si el panel y los datos no comparten el mismo aspecto.
+  - **Arreglo - dos factores de POSICIÓN independientes**: en
+    `calcularEscala` (`PlanoPuntosControl.jsx` - la lógica de escala/
+    viewBox vive ahí, no en `frontend/src/lib/layoutPlano.js`, que solo
+    tiene el presupuesto de alto disponible; se deja esta aclaración
+    explícita para quien busque el archivo por el nombre de la tarea),
+    las POSICIONES de los puntos (dónde cae cada uno en el plano) ahora
+    se escalan con `escalaX` y `escalaY` INDEPENDIENTES: `escalaY = 1`
+    siempre (el alto del `viewBox` es una referencia directa a la
+    extensión real de los puntos en Y, sin estirar) y
+    `escalaX = ancho_viewBox / ancho_contenido_crudo`, donde
+    `ancho_viewBox = alto_viewBox * aspecto_real_del_panel` (ya sin
+    acotar - `ASPECTO_VIEWBOX_MAX` se eliminó por completo, quedó
+    obsoleto). Esta misma fórmula funciona para paneles angostos
+    (`aspecto < 1`, `escalaX` da menor a 1 y comprime en vez de
+    estirar) sin necesitar una rama aparte - a diferencia de la lógica
+    con ramas explícitas de rondas anteriores.
+  - **El TAMAÑO de cada elemento sigue siendo uniforme**: `radio =
+    radioRaw * Math.min(escalaX, escalaY)` - un solo factor para el
+    radio del marcador, grosor de línea del túnel, tamaño del chip, la
+    rosa de los vientos y el portal de "Entrada", para que nada se vea
+    estirado ni aplastado. Se usó el MENOR de los dos factores de
+    posición (no el promedio) para que un marcador nunca termine más
+    grande que el espacio que la propia distribución de puntos le deja
+    en su eje más comprimido.
+  - **Las posiciones YA transformadas se usan en TODO el resto del
+    dibujo** (no solo en los marcadores): `calcularEscala` devuelve
+    `puntosTransformados` (cada punto con `coord_x`/`coord_y` en
+    espacio de dibujo) y eso es lo que alimenta
+    `construirEstructuraTunel`, la búsqueda del punto "0"
+    (`puntoEntrada`) y el `.map()` de marcadores - nunca los `puntos`
+    crudos que llegan por props. Esto es necesario porque
+    `segmentoCurva` (la curva del túnel) calcula un offset
+    PERPENDICULAR basado en la distancia entre dos puntos - ese cálculo
+    solo da un resultado visualmente correcto si se hace DESPUÉS de
+    aplicar el escalado anisotrópico (perpendicular en el espacio ya
+    dibujado, que es el que se ve en pantalla), no antes.
+  - **Bug encontrado y corregido en el camino**: el tooltip
+    (`TooltipContenido`) mostraba `punto.coord_x`/`coord_y` como las
+    coordenadas reales de topografía del punto - con el cambio, esos
+    campos pasaron a ser posiciones de DIBUJO (ya escaladas
+    anisotrópicamente), no datos reales. Se agregaron
+    `coordXOriginal`/`coordYOriginal` a `puntosTransformados`
+    (preservando los valores originales de `coord_x`/`coord_y` antes de
+    transformar) y el tooltip ahora usa esos campos - verificado en
+    navegador real que el tooltip del punto "0" sigue mostrando "x:
+    1000.0 · y: 1000.0" (las coordenadas reales), no un valor
+    transformado sin sentido.
+  - **`AIRE_RATIO = 0.04`**: un respiro parejo del 4% en ambos ejes,
+    más allá del margen ya calculado por `MARGEN_*` (que sigue
+    protegiendo contra recortes de marcadores/chips/portal/rosa igual
+    que antes) - sin este respiro el contenido tocaría el borde exacto
+    del panel (ocupación 100% por construcción, matemáticamente
+    garantizada por cómo se derivan `escalaX`/`escalaY` a partir del
+    mismo `ancho`/`alto` que definen), lo cual se sentía demasiado
+    ajustado. Con el respiro, la ocupación medida es ~96.2%/96.2% en
+    cualquier aspecto de panel - consistente, sin importar qué tan
+    panorámica sea la pantalla (a diferencia de rondas anteriores,
+    donde la ocupación variaba según el aspecto).
+  - Verificación en navegador real, en las mismas 3 resoluciones de
+    rondas anteriores (método de iframe real embebido, login real,
+    datos reales de la Estación Chicamocha) - se verificaron
+    explícitamente las 4 condiciones pedidas en cada una:
+    - **1366×768 (laptop estándar)**: (a) contenido bien distribuido -
+      ocupación 92.9% ancho / 94.4% alto del `viewBox` medida con
+      `getBBox()` (con el aspecto real 2.88 recalculado manualmente:
+      96.2%/96.2%, ver nota metodológica abajo); (b) los 7 marcadores
+      verificados con `getBoundingClientRect()` dan `ratio: "1.0000"`
+      (ancho de pantalla == alto de pantalla, círculos perfectos, no
+      óvalos); (c) sin scroll (`scrollDiff: 0`); (d) `getBBox()`:
+      márgenes positivos en los 4 lados, nada cortado. Ancho del panel
+      = 1041.6px, coincide exacto con el banner (ancho completo
+      intacto). Tooltip funcional, mostrando las coordenadas reales
+      ("x: 1000.0 · y: 1000.0"). Sin errores de consola. Captura visual
+      confirma el contenido distribuido a lo ancho del panel, círculos
+      visiblemente redondos.
+    - **2560×1080 (panorámica ancha)**: mismas 4 condiciones
+      verificadas - los 7 marcadores con `ratio: "1.0000"`; sin scroll;
+      ocupación 92.9%/94.4% medida (96.2%/96.2% con el aspecto real
+      3.33, recalculado manualmente); panel = 2235.2px, coincide exacto
+      con el banner; márgenes positivos; tooltip funcional; sin errores
+      de consola.
+    - **1600×900 (ventana intermedia)**: mismas 4 condiciones - los 7
+      marcadores con `ratio: "1.0000"`; sin scroll; ocupación
+      92.9%/94.4% medida (96.2%/96.2% con el aspecto real 2.58,
+      recalculado manualmente); panel = 1275.2px, coincide exacto con
+      el banner; márgenes positivos; tooltip funcional; sin errores de
+      consola. Captura visual confirma las 4 condiciones a la vez.
+    - Verificación adicional (no pedida explícitamente, para confirmar
+      que no se rompió lo ya logrado): **395×895 (angosto)** - los 7
+      marcadores siguen con `ratio: "1.0000"` (círculos perfectos
+      también en angosto), sigue a ancho completo, sigue con el scroll
+      de ~284px ya aceptado en rondas anteriores (sin relación con este
+      cambio), sin recortes.
+    - **Nota metodológica sobre la verificación**: igual que en la
+      ronda anterior, la pestaña de pruebas de este navegador
+      automatizado corre en segundo plano (`document.hidden = true`),
+      y Chrome throttlea `ResizeObserver` ahí - el `aspecto` medido por
+      la app se queda pegado en el valor de respaldo
+      (`ASPECTO_POR_DEFECTO = 16/9 ≈ 1.78`) en vez de actualizarse al
+      aspecto real del panel en cada resolución (2.88, 3.33, 2.58).
+      Esto NO afecta a un usuario real con la pestaña enfocada. La
+      ocupación medida con `getBBox()` en el navegador (92.9%/94.4%) ya
+      es una mejora real y contundente sobre la ronda anterior
+      (81.4%/94.7%) incluso con el aspecto de respaldo - y para
+      confirmar el comportamiento con el aspecto EXACTO de cada
+      resolución, se recalculó `calcularEscala()` manualmente (mismas
+      constantes, puntos reales leídos del DOM) con cada aspecto real
+      medido, dando 96.2%/96.2% de forma consistente en las 3
+      resoluciones - la fórmula garantiza esa ocupación
+      independientemente del aspecto, por construcción.
 - MEJORA PENDIENTE (no bloqueante): el pipeline ML en
   POST /api/telemetria/ingesta-archivo ejecuta el escalado
   (scaler.transform) y la inferencia (model.predict) fila por fila, en
