@@ -649,6 +649,101 @@ pertenece.
       contenedor angosto, superando la reserva vertical calibrada
       para layouts anchos) - mismo comportamiento ya aceptado en la
       ronda anterior para este caso límite.
+- DECISIÓN (2026-09-16): sexta ronda - el panel ya era ancho completo y
+  sin scroll (ronda 5), pero el CONTENIDO (puntos + túnel) quedaba
+  chico y centrado dentro de un `viewBox` grande, con mucho espacio
+  vacío alrededor - confirmado con captura real del usuario.
+  - **Diagnóstico con números reales** (navegador real, `getBBox()` del
+    contenido contra el `viewBox`): con el aspecto real de un panel
+    panorámico (ej. 3.74:1 a 1536px de ancho), el contenido ocupaba
+    solo **26.8% del ancho** del `viewBox` pero **94.8% del alto** - el
+    alto ya estaba bien aprovechado (`alto = base`, ligado de cerca a
+    la extensión real de los puntos), pero `ancho = base * aspecto`
+    estiraba el `viewBox` para igualar el aspecto EXACTO del panel sin
+    ningún límite, y como los puntos reales son casi cuadrados
+    (~1.05-1.16:1), la mayor parte de ese ancho estirado quedaba vacío
+    (grid sin contenido real). Matemáticamente, con un panel mucho más
+    ancho que el contenido, esto es inevitable si se insiste en que el
+    `viewBox` iguale el aspecto exacto del panel sin distorsionar el
+    contenido - hay que elegir entre estirar el `viewBox` (contenido
+    chico) o limitarlo (el panel deja de llenarse al 100% con el
+    dibujo, aunque el PANEL en sí sigue siendo ancho completo).
+  - **Arreglo - `ASPECTO_VIEWBOX_MAX = 1.5`**: se acota el aspecto que
+    puede tomar el `viewBox` (no el del panel/contenedor, que sigue
+    sin límite - ver ronda 5) a un máximo de 1.5:1, cercano al aspecto
+    real de los datos (~1.05-1.16:1) con algo de aire. Cuando el
+    aspecto real del panel supera este límite, el `<svg>` deja de
+    estirarse hasta ahí; en su lugar se centra dentro del panel vía
+    `preserveAspectRatio="xMidYMid meet"` (el default, ahora explícito
+    en el código) - el dibujo (papel técnico + túnel + marcadores) pasa
+    a verse como una lámina bien proporcionada y centrada, con margen
+    del propio fondo blanco del panel a los lados, en vez de una tira
+    estirada. El límite se acota simétricamente
+    (`[1/ASPECTO_VIEWBOX_MAX, ASPECTO_VIEWBOX_MAX]`) para cubrir también
+    el caso opuesto (panel angosto y alto).
+  - **`RADIO_RATIO` subido de 0.039 a 0.05**: el límite de aspecto por
+    sí solo no agranda los marcadores (la escala real - píxeles de
+    pantalla por unidad - sigue determinada por ajustar el alto del
+    contenido al alto disponible, que ya estaba cerca del máximo antes
+    del cambio); para que "los marcadores, etiquetas y el túnel se vean
+    grandes y claros" como pidió la tarea, hacía falta agrandarlos
+    también en relación a la extensión real de los puntos. Los
+    `MARGEN_*` (multiplos de `radio`) escalan automáticamente con este
+    cambio, sin necesitar ajuste aparte.
+  - **Resultado medido** (mismo método `getBBox()`, con el aspecto real
+    del panel en cada resolución): ocupación del contenido subió de
+    ~27%/95% a **81.4% de ancho / 94.7% de alto** del `viewBox` en las
+    3 resoluciones de prueba (todas caen en el aspecto acotado a 1.5,
+    ya que las 3 superan ese límite) - con el radio de marcador también
+    ~28% más grande en píxeles de pantalla que antes del cambio de
+    `RADIO_RATIO`.
+  - **Nota metodológica sobre la verificación**: la pestaña de pruebas
+    de este navegador automatizado corre en segundo plano
+    (`document.hidden = true`), y Chrome throttlea `ResizeObserver` en
+    pestañas no enfocadas (comportamiento estándar del navegador, no un
+    bug) - el `aspecto` medido se queda pegado en el valor de respaldo
+    (`ASPECTO_POR_DEFECTO`) en vez de actualizarse al aspecto real. Esto
+    NO afecta a un usuario real con la pestaña enfocada. Para verificar
+    la lógica de todas formas de manera rigurosa, se recalculó
+    manualmente `calcularEscala()` (con las mismas constantes y los
+    puntos reales leídos del DOM) para varios valores de aspecto,
+    incluyendo el aspecto EXACTO medido en cada una de las 3
+    resoluciones de prueba - confirmando que el acotado y la ocupación
+    resultante son correctos independientemente de si `ResizeObserver`
+    disparó o no en esta pestaña de prueba en particular.
+  - Verificación en navegador real, en las mismas 3 resoluciones de la
+    ronda anterior (método de iframe real embebido, login real, datos
+    reales de la Estación Chicamocha):
+    - **1366×768 (laptop estándar)**: sin scroll (`scrollDiff: 0`).
+      Ancho del panel = 1041.6px, coincide exacto con el banner (ancho
+      completo intacto). `getBBox()`: márgenes positivos en los 4 lados
+      (nada recortado). Ocupación del contenido: 81.4% ancho / 94.7%
+      alto del `viewBox` (antes ~27%/95%). Tooltip funcional. Sin
+      errores de consola. Captura visual confirma el dibujo
+      notablemente más grande y centrado, con margen blanco genuino a
+      la derecha (antes grid estirado con puntos dispersos).
+    - **2560×1080 (panorámica ancha)**: sin scroll. Ancho del panel =
+      2235.2px, coincide exacto con el banner. Márgenes positivos.
+      Misma ocupación (81.4%/94.7%, el aspecto acotado da el mismo
+      resultado en cualquier panel que supere 1.5:1). Tooltip
+      funcional. Sin errores de consola. Captura visual confirma el
+      panel sigue siendo ancho completo, con el dibujo centrado y un
+      margen blanco considerable a los lados - un trade-off deliberado
+      e inevitable dado que el contenido real es casi cuadrado y el
+      panel es mucho más ancho (ver diagnóstico arriba).
+    - **1600×900 (ventana intermedia)**: sin scroll. Ancho del panel =
+      1275.2px, coincide exacto con el banner. Márgenes positivos.
+      Misma ocupación. Tooltip funcional. Sin errores de consola.
+      Captura visual confirma las 3 condiciones a la vez (ancho
+      completo + sin scroll + contenido notablemente más grande).
+    - Verificación adicional (no pedida explícitamente, para confirmar
+      que no se rompió lo ya logrado): **395×895 (angosto)** - sigue a
+      ancho completo, sigue con el scroll de ~284px ya aceptado en la
+      ronda anterior (sin cambios de esta ronda), sin recortes. Se
+      verificó también manualmente la rama simétrica del acotado
+      (aspecto de panel < 1, caso de panel angosto y muy alto): el
+      aspecto se acota hacia arriba a `1/1.5 ≈ 0.667`, dando 100% de
+      ocupación en ancho y 64.5% en alto - correcto y simétrico.
 - MEJORA PENDIENTE (no bloqueante): el pipeline ML en
   POST /api/telemetria/ingesta-archivo ejecuta el escalado
   (scaler.transform) y la inferencia (model.predict) fila por fila, en

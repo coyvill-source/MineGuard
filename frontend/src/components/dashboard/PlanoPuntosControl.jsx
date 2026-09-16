@@ -1,11 +1,34 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { calcularAltoDisponible } from "../../lib/layoutPlano"
 
-const RADIO_RATIO = 0.039
+// Subido de 0.039 a 0.05 (ronda 6): con el aspecto del viewBox ya
+// acotado (ver ASPECTO_VIEWBOX_MAX) los marcadores/túnel/chips seguían
+// viéndose chicos - este factor los agranda relativo a la extensión
+// real de los puntos, sin afectar el encuadre (los MARGEN_* de abajo
+// son múltiplos de `radio`, así que escalan junto con él automáticamente).
+const RADIO_RATIO = 0.05
 // Aspecto de respaldo para el primer render, antes de que el
 // ResizeObserver mida el aspecto real del contenedor ya pintado (ver
 // PlanoPuntosControl). Solo importa por una fracción de segundo.
 const ASPECTO_POR_DEFECTO = 16 / 9
+
+// Límite del aspecto ancho:alto que puede tomar el VIEWBOX (el área
+// realmente dibujada: fondo de papel técnico + túnel + marcadores) - NO
+// es el aspecto del panel/contenedor, que sigue siendo ancho completo sin
+// límite (ver PlanoPuntosControl). Medido en navegador real: sin este
+// límite, el viewBox se estiraba para igualar EXACTO el aspecto del panel
+// (hasta 3.7:1 en pantallas panorámicas), y como los puntos reales son
+// casi cuadrados (~1.05:1), el contenido terminaba ocupando solo ~27% del
+// ancho del viewBox - "un dibujo chico perdido en un lienzo grande",
+// justo la queja del usuario. Con este límite, cuando el panel es más
+// ancho que `ASPECTO_VIEWBOX_MAX`, el `<svg>` deja de estirarse hasta ahí
+// y en cambio se centra dentro del panel vía `preserveAspectRatio` (el
+// panel SIGUE siendo ancho completo - lo que cambia es que el dibujo dentro
+// de él pasa a verse como una lámina bien proporcionada en vez de una tira
+// estirada). 1.5 se eligió por quedar cerca del aspecto real de los datos
+// (~1.05-1.16 según la estación) con algo de aire, sin volverse casi
+// cuadrado. Ver DECISIÓN en docs/PROJECT_CONTEXT.md.
+const ASPECTO_VIEWBOX_MAX = 1.5
 
 // Margenes de encuadre, en multiplos de `radio` (ver calcularEscala): no son
 // un porcentaje arbitrario, son la huella real que cada elemento decorativo
@@ -27,10 +50,16 @@ const ESTILO_SIN_DATOS = { marcador: "fill-slate-400 stroke-slate-500", etiqueta
 // El plano es esquemático (no hay imagen de fondo real de la mina): coord_x
 // y coord_y se ubican tal cual en el plano cartesiano, sin invertir el eje Y.
 //
-// `aspecto` (ancho/alto) permite que el viewBox coincida con el aspecto real
-// del contenedor en pantalla (medido con ResizeObserver en el componente) en
-// vez de ser siempre cuadrado: así el SVG llena el contenedor por completo,
-// sin franjas vacías a los lados en pantallas panorámicas.
+// `aspecto` (ancho/alto) es el aspecto REAL del contenedor en pantalla
+// (medido con ResizeObserver), pero se le aplica un tope
+// (`ASPECTO_VIEWBOX_MAX`, ver arriba) antes de usarlo: sin tope, el viewBox
+// coincidía exacto con el aspecto del panel (correcto para evitar
+// franjas vacías en pantallas moderadamente panorámicas), pero en
+// pantallas MUY panorámicas dejaba el contenido (casi cuadrado) ocupando
+// una fracción mínima del ancho - el tope prioriza que el contenido se
+// vea grande y bien proporcionado por encima de que el `<svg>` llene el
+// 100% del ancho del panel en esos casos extremos (el panel en sí sigue
+// siendo ancho completo - ver DECISIÓN en docs/PROJECT_CONTEXT.md).
 //
 // El encuadre se calcula en dos pasos: primero `radio` (tamaño de marcador)
 // sale de la extensión real de los puntos (`extentRaw`), sin importar el
@@ -64,8 +93,10 @@ function calcularEscala(puntos, aspecto = 1) {
   const centroY = (minY + maxY) / 2
   const base = Math.max(maxX - minX, maxY - minY)
 
-  const ancho = aspecto >= 1 ? base * aspecto : base
-  const alto = aspecto >= 1 ? base : base / aspecto
+  // Acotar el aspecto ANTES de derivar ancho/alto - ver ASPECTO_VIEWBOX_MAX.
+  const aspectoAcotado = Math.min(Math.max(aspecto, 1 / ASPECTO_VIEWBOX_MAX), ASPECTO_VIEWBOX_MAX)
+  const ancho = aspectoAcotado >= 1 ? base * aspectoAcotado : base
+  const alto = aspectoAcotado >= 1 ? base : base / aspectoAcotado
 
   return {
     minX: centroX - ancho / 2,
@@ -534,6 +565,12 @@ function PlanoPuntosControl({ puntos }) {
     >
       <svg
         viewBox={`${escala.minX} ${escala.minY} ${escala.ancho} ${escala.alto}`}
+        // "xMidYMid meet" (el default, ahora explícito): cuando el aspecto
+        // del panel excede ASPECTO_VIEWBOX_MAX, el viewBox queda más
+        // angosto que el panel y el navegador centra el dibujo dejando
+        // margen del propio fondo del panel (bg-white) a los lados, en vez
+        // de estirar el contenido para llenar el ancho completo.
+        preserveAspectRatio="xMidYMid meet"
         className="h-full w-full"
         role="img"
         aria-label="Plano de puntos de control de la estación"
