@@ -320,6 +320,95 @@ pertenece.
     (mg-navy/mg-accent/mg-safe/alert/danger, más `emerald` para el
     túnel y `slate` para "sin datos" - ya aprobados, no se agregaron
     colores nuevos).
+- DECISIÓN (2026-09-16): segunda ronda de pulido visual de
+  `PlanoPuntosControl.jsx`, con 6 ajustes específicos aprobados por el
+  usuario tras revisar una captura real del plano. Todo sigue dentro
+  de la paleta de marca aprobada (mg-navy/mg-accent/mg-safe/alert/
+  danger, emerald para el túnel, slate para "sin datos") y sin romper
+  tooltip, semáforo, estructura del túnel, ancho completo/aspecto
+  dinámico ni responsividad (verificado en navegador real, ancho y
+  angosto - ver detalle al final de esta entrada).
+  - **1. Sombra y profundidad en los marcadores**: cada marcador
+    (`<circle>`) usa un `<filter>` SVG nuevo (`feDropShadow`,
+    definido una vez en `<defs>` con `useId`) en vez de un filtro CSS
+    (`drop-shadow` de Tailwind), para que la sombra escale junto con
+    el resto de la geometría del `viewBox` y no dependa de píxeles de
+    pantalla. El `flood-color` se fija vía `style` (no hay clase de
+    Tailwind para presentation attributes de un filtro SVG) usando la
+    custom property `var(--color-mg-navy-900)`, así sigue tomando el
+    color de la paleta en vez de un hex suelto.
+  - **1b. Icono en marcadores "sin datos"**: los círculos grises
+    (`IconoSinDatos`) ahora muestran 3 barras ascendentes (icono de
+    "sensor/señal" minimalista, `fill-slate-600/85`) en vez de verse
+    vacíos - se eligió sobre un signo de interrogación porque en un
+    panel de monitoreo de seguridad un "sensor esperando datos" se
+    lee mejor que un símbolo que sugiere error.
+  - **2. Portal de "Entrada" rediseñado**: `MarcaEntrada` reemplaza el
+    arco delgado anterior por un portal reforzado - postes + arco
+    (trazo más grueso, `radio*0.22`), una viga dintel horizontal en el
+    arranque del arco, y 2 riostras diagonales de esquina (refuerzo
+    estructural). Sigue dibujado 100% detrás del marcador circular
+    (nunca lo tapa) y la etiqueta "Entrada" se reposicionó más cerca
+    del arco para no exceder el margen reservado (ver ajuste 4).
+  - **3. Chips/badges en las etiquetas de punto**: el número de
+    `nombre_estacion` bajo cada punto pasó de texto suelto a una
+    píldora (`rx = altoChip/2`) con fondo `fill-mg-surface-100` y
+    borde sutil `stroke-mg-navy-900/10`, mejor contraste que el texto
+    plano anterior. El tamaño de la píldora es fijo en múltiplos de
+    `radio` (pensado para los valores reales de 1 dígito, "0" a "6");
+    no se implementó auto-ajuste al ancho del texto (requeriría medir
+    con `getBBox` por punto) porque no había necesidad real con los
+    datos actuales - si `nombre_estacion` empieza a tener nombres más
+    largos, revisar `anchoChip`.
+  - **4. Encuadre más ajustado (menos espacio vacío)**: `calcularEscala`
+    dejó de usar un `PADDING_RATIO` fijo (22% de la extensión). Ahora
+    el margen se calcula punto por punto, sumando exactamente lo que
+    cada elemento decorativo necesita para no cortarse: `MARGEN_LATERAL`
+    (2.0×radio - marcador agrandado en hover/foco + su stroke, y
+    también lo que usa la rosa de los vientos en su esquina),
+    `MARGEN_PORTAL` (3.6×radio, solo arriba del punto "0" - alcance
+    del portal + su etiqueta) y `MARGEN_CHIP` (2.5×radio, abajo de
+    todos los puntos - alcance del chip). El resultado es un ~5-8%
+    más ajustado que el margen fijo anterior en los lados que sí
+    tienen contenido cerca del borde (verificado con `getBBox()` en
+    navegador real: el contenido queda a 2.9-10 unidades del borde del
+    `viewBox`, nunca cortado). El margen lateral (`elegirEsquinaRosa`)
+    reutiliza la misma constante `MARGEN_LATERAL`, así la rosa siempre
+    cabe exactamente en el espacio que el encuadre le reservó.
+    **Importante**: en pantallas muy panorámicas (aspecto 21/9) sigue
+    habiendo espacio vacío visible en el lado opuesto a la rosa - eso
+    es inherente a rellenar el ancho completo sin distorsionar la
+    escala real de los puntos (ver DECISIÓN anterior de ancho
+    completo/aspecto dinámico), no es el mismo problema que este
+    ajuste resuelve (que era el margen alrededor de los puntos, no el
+    espacio del aspecto panorámico).
+  - **`RADIO_RATIO` recalibrado** (0.032 → 0.039) porque `radio` pasó
+    a calcularse sobre la extensión cruda de los puntos (`extentRaw`)
+    en vez de sobre el `base` ya con padding aplicado (que ya no
+    existe como tal) - el nuevo valor mantiene el tamaño visual de los
+    marcadores igual que antes con los datos reales de la Estación
+    Chicamocha.
+  - **5. Túnel con profundidad (doble línea)**: cada tramo (principal
+    y rama) ahora dibuja primero un trazo "sombra" más ancho y oscuro
+    (`stroke-emerald-900/30` para el principal, `/15` para las ramas -
+    mismo tono ya aprobado, solo más oscuro, no es un color nuevo)
+    detrás del trazo emerald existente (que no cambió), dando efecto
+    de galería con volumen en vez de una línea plana.
+  - **6. Rosa de los vientos pulida**: ganó un halo suave detrás
+    (`fill-mg-navy-900/5`), un anillo bisel intermedio, un punto
+    central, proporción de estrella más náutica (eje N-S más largo/
+    prominente que el eje E-O) y tipografía con `letter-spacing` en la
+    "N". Se redujo ligeramente su multiplicador de radio (1.56 → 1.4)
+    para que quepa con margen dentro del nuevo encuadre más ajustado
+    (ver ajuste 4) sin arriesgar recortarse contra el borde.
+  - Verificación en navegador real: ancho (~1536px y una ventana
+    panorámica 21:9) y angosto (395px, mismo método de iframe real que
+    en la ronda anterior, mismas media queries de Tailwind) - portal,
+    chips, iconos "sin datos", túnel con profundidad y rosa pulida se
+    ven correctamente proporcionados en ambos extremos, sin recortes
+    (confirmado numéricamente con `getBBox()` de todos los elementos
+    contra el `viewBox`), tooltip funcional (hover/click), sin errores
+    de consola.
 - MEJORA PENDIENTE (no bloqueante): el pipeline ML en
   POST /api/telemetria/ingesta-archivo ejecuta el escalado
   (scaler.transform) y la inferencia (model.predict) fila por fila, en

@@ -1,8 +1,17 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 
-const PADDING_RATIO = 0.22
-const RADIO_RATIO = 0.032
+const RADIO_RATIO = 0.039
 const ASPECTO_POR_DEFECTO = 16 / 9
+
+// Margenes de encuadre, en multiplos de `radio` (ver calcularEscala): no son
+// un porcentaje arbitrario, son la huella real que cada elemento decorativo
+// necesita para no cortarse. Se documentan uno por uno porque cada valor
+// esta calibrado contra el tamaño real del elemento que protege - si se
+// cambia el tamaño de un elemento (el portal, el chip, la rosa), hay que
+// revisar el margen correspondiente.
+const MARGEN_LATERAL = 2.0 // marcador agrandado en hover/foco (radio*1.3) + su stroke, y tambien el radio que usa la rosa de los vientos en su esquina (ver elegirEsquinaRosa)
+const MARGEN_PORTAL = 3.6 // alcance vertical del portal de "Entrada" (arco + etiqueta de texto) sobre el punto "0"
+const MARGEN_CHIP = 2.5 // alcance del chip de etiqueta debajo de cada punto
 
 const ESTILO_POR_NIVEL = {
   optimo: { marcador: "fill-mg-safe-500 stroke-mg-safe-500", etiqueta: "Óptimo" },
@@ -17,23 +26,39 @@ const ESTILO_SIN_DATOS = { marcador: "fill-slate-400 stroke-slate-500", etiqueta
 // `aspecto` (ancho/alto) permite que el viewBox coincida con el aspecto real
 // del contenedor en pantalla (medido con ResizeObserver en el componente) en
 // vez de ser siempre cuadrado: así el SVG llena el contenedor por completo,
-// sin franjas vacías a los lados en pantallas panorámicas. El padding y el
-// tamaño de los marcadores (`radio`) se calculan siempre sobre la extensión
-// real de los puntos (`extentBase`), nunca sobre el ancho extra que agrega
-// un aspecto panorámico - así los marcadores no cambian de tamaño solo
-// porque el contenedor se hizo más ancho.
+// sin franjas vacías a los lados en pantallas panorámicas.
+//
+// El encuadre se calcula en dos pasos: primero `radio` (tamaño de marcador)
+// sale de la extensión real de los puntos (`extentRaw`), sin importar el
+// aspecto ni el margen. Después, el cuadro de contenido se arma punto por
+// punto sumando el margen que cada uno realmente necesita en cada dirección
+// (lateral en todos, más margen arriba SOLO para el punto "0" por el portal
+// de "Entrada", más margen abajo en todos por el chip de etiqueta) - en vez
+// de un porcentaje fijo de padding, que dejaba huecos grandes en los lados
+// que no tienen ningún elemento decorativo que proteger.
 function calcularEscala(puntos, aspecto = 1) {
-  const xs = puntos.map((p) => p.coord_x)
-  const ys = puntos.map((p) => p.coord_y)
-  const minX = Math.min(...xs)
-  const maxX = Math.max(...xs)
-  const minY = Math.min(...ys)
-  const maxY = Math.max(...ys)
+  const xsRaw = puntos.map((p) => p.coord_x)
+  const ysRaw = puntos.map((p) => p.coord_y)
+  const extentRaw =
+    Math.max(Math.max(...xsRaw) - Math.min(...xsRaw), Math.max(...ysRaw) - Math.min(...ysRaw)) || 1
+  const radio = extentRaw * RADIO_RATIO
 
-  const extentBase = Math.max(maxX - minX, maxY - minY) || 1
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+
+  for (const p of puntos) {
+    const esEntrada = p.nombre_estacion === "0"
+    minX = Math.min(minX, p.coord_x - radio * MARGEN_LATERAL)
+    maxX = Math.max(maxX, p.coord_x + radio * MARGEN_LATERAL)
+    minY = Math.min(minY, p.coord_y - radio * (esEntrada ? MARGEN_PORTAL : MARGEN_LATERAL))
+    maxY = Math.max(maxY, p.coord_y + radio * MARGEN_CHIP)
+  }
+
   const centroX = (minX + maxX) / 2
   const centroY = (minY + maxY) / 2
-  const base = extentBase * (1 + PADDING_RATIO)
+  const base = Math.max(maxX - minX, maxY - minY)
 
   const ancho = aspecto >= 1 ? base * aspecto : base
   const alto = aspecto >= 1 ? base : base / aspecto
@@ -43,7 +68,7 @@ function calcularEscala(puntos, aspecto = 1) {
     minY: centroY - alto / 2,
     ancho,
     alto,
-    radio: base * RADIO_RATIO,
+    radio,
   }
 }
 
@@ -186,11 +211,12 @@ function TooltipContenido({ punto }) {
 // los datos reales (ocurrio en pruebas: el punto "0" quedo justo en la
 // esquina superior-derecha, la posicion fija por defecto de la rosa).
 function elegirEsquinaRosa(escala, puntoEntrada) {
-  // El margen se basa en `radio` (escala de los marcadores, ligada a la
-  // extensión real de los puntos) y no en `ancho`/`alto` del viewBox, para
-  // que la distancia al borde se vea igual de cómoda sin importar cuánto
-  // se haya ensanchado el viewBox por el aspecto panorámico.
-  const margen = escala.radio * 4.5
+  // Mismo margen que calcularEscala reserva como margen lateral generico
+  // (MARGEN_LATERAL): es exactamente el espacio que se dejo libre de
+  // contenido en los lados que no tienen portal ni chip, así que la rosa
+  // (que mide menos que ese margen - ver RosaDeLosVientos) cabe sin chocar
+  // con ningun punto ni recortarse contra el borde del viewBox.
+  const margen = escala.radio * MARGEN_LATERAL
   const esquinas = [
     { x: escala.minX + margen, y: escala.minY + margen },
     { x: escala.minX + escala.ancho - margen, y: escala.minY + margen },
@@ -207,62 +233,72 @@ function elegirEsquinaRosa(escala, puntoEntrada) {
   })
 }
 
-// Rosa de los vientos decorativa (estilo plano tecnico de ingenieria),
-// tamaño proporcional al viewBox para que se vea igual sin importar cuanto
-// se extiendan los puntos. Usa los colores de marca (navy/accent).
+// Rosa de los vientos decorativa (estilo plano tecnico de ingenieria):
+// halo suave + circulo base + anillo bisel + estrella de 8 puntas (eje N-S
+// mas largo/prominente que el eje E-O, como en una rosa nautica real) + eje
+// central + etiquetas N/S/E/O. Tamaño proporcional a escala.radio, nunca al
+// ancho/alto del viewBox, para que se vea igual sin importar el aspecto.
 function RosaDeLosVientos({ escala, cx, cy }) {
-  const radio = escala.radio * 1.56
+  const radio = escala.radio * 1.4
 
   return (
     <g className="pointer-events-none select-none" aria-hidden="true">
+      <circle cx={cx} cy={cy} r={radio * 1.15} className="fill-mg-navy-900/5" />
+      <circle cx={cx} cy={cy} r={radio} className="fill-white/85 stroke-mg-navy-800/35" strokeWidth={radio * 0.05} />
       <circle
         cx={cx}
         cy={cy}
-        r={radio}
-        className="fill-white/70 stroke-mg-navy-800/30"
-        strokeWidth={radio * 0.05}
+        r={radio * 0.82}
+        fill="none"
+        className="stroke-mg-navy-800/20"
+        strokeWidth={radio * 0.03}
       />
       <path
-        d={`M ${cx} ${cy - radio * 0.85} L ${cx + radio * 0.2} ${cy} L ${cx} ${cy + radio * 0.85} L ${cx - radio * 0.2} ${cy} Z`}
-        className="fill-mg-navy-800/70"
+        d={`M ${cx} ${cy - radio * 0.82} L ${cx + radio * 0.16} ${cy} L ${cx} ${cy + radio * 0.82} L ${cx - radio * 0.16} ${cy} Z`}
+        className="fill-mg-navy-800/80"
       />
       <path
-        d={`M ${cx - radio * 0.85} ${cy} L ${cx} ${cy - radio * 0.2} L ${cx + radio * 0.85} ${cy} L ${cx} ${cy + radio * 0.2} Z`}
-        className="fill-mg-accent-500/70"
+        d={`M ${cx - radio * 0.62} ${cy} L ${cx} ${cy - radio * 0.16} L ${cx + radio * 0.62} ${cy} L ${cx} ${cy + radio * 0.16} Z`}
+        className="fill-mg-accent-500/75"
       />
+      <circle cx={cx} cy={cy} r={radio * 0.09} className="fill-mg-navy-900" />
       <text
         x={cx}
-        y={cy - radio * 1.15}
+        y={cy - radio * 1.05}
         textAnchor="middle"
+        dominantBaseline="middle"
         className="fill-mg-navy-800 font-bold"
-        style={{ fontSize: radio * 0.5 }}
+        style={{ fontSize: radio * 0.42, letterSpacing: "0.02em" }}
       >
         N
       </text>
       <text
         x={cx}
-        y={cy + radio * 1.35}
+        y={cy + radio * 1.1}
         textAnchor="middle"
-        className="fill-mg-navy-800"
-        style={{ fontSize: radio * 0.42 }}
+        dominantBaseline="middle"
+        className="fill-mg-navy-700 font-semibold"
+        style={{ fontSize: radio * 0.36 }}
       >
         S
       </text>
       <text
-        x={cx + radio * 1.3}
-        y={cy + radio * 0.16}
+        x={cx + radio * 1.1}
+        y={cy}
         textAnchor="middle"
-        className="fill-mg-navy-800"
-        style={{ fontSize: radio * 0.42 }}
+        dominantBaseline="middle"
+        className="fill-mg-navy-700 font-semibold"
+        style={{ fontSize: radio * 0.36 }}
       >
         E
       </text>
       <text
-        x={cx - radio * 1.3}
-        y={cy + radio * 0.16}
+        x={cx - radio * 1.1}
+        y={cy}
         textAnchor="middle"
-        className="fill-mg-navy-800"
-        style={{ fontSize: radio * 0.42 }}
+        dominantBaseline="middle"
+        className="fill-mg-navy-700 font-semibold"
+        style={{ fontSize: radio * 0.36 }}
       >
         O
       </text>
@@ -271,37 +307,95 @@ function RosaDeLosVientos({ escala, cx, cy }) {
 }
 
 // Marca decorativa de "entrada de la mina" en el punto nombre_estacion "0":
-// un arco/portal detras del marcador (nunca lo tapa - el semaforo de nivel
-// de alerta sigue siendo el elemento funcional) + una etiqueta "Entrada".
-// Esquematica, no geometria real medida - ver docs/PROJECT_CONTEXT.md.
+// portal reforzado (postes + arco + viga dintel + riostras diagonales de
+// esquina, como una entrada de galeria minera real) dibujado detras del
+// marcador (nunca lo tapa - el semaforo de nivel de alerta sigue siendo el
+// elemento funcional) + etiqueta "Entrada". Esquematica, no geometria real
+// medida - ver docs/PROJECT_CONTEXT.md.
 function MarcaEntrada({ punto, radio }) {
   const cx = punto.coord_x
   const cy = punto.coord_y
   const ancho = radio * 3.2
-  const alto = radio * 2.6
+  const alto = radio * 2.85
+  const postTopY = cy - alto * 0.5
+  const postBottomY = cy + alto * 0.15
+  const archPeakY = cy - alto
+  const leftX = cx - ancho / 2
+  const rightX = cx + ancho / 2
 
   return (
     <g className="pointer-events-none select-none" aria-hidden="true">
+      {/* Riostras diagonales de esquina (refuerzo estructural) */}
       <path
-        d={`M ${cx - ancho / 2} ${cy + alto * 0.15}
-            L ${cx - ancho / 2} ${cy - alto * 0.1}
-            Q ${cx - ancho / 2} ${cy - alto} ${cx} ${cy - alto}
-            Q ${cx + ancho / 2} ${cy - alto} ${cx + ancho / 2} ${cy - alto * 0.1}
-            L ${cx + ancho / 2} ${cy + alto * 0.15}`}
+        d={`M ${leftX} ${postTopY + alto * 0.28} L ${leftX + ancho * 0.15} ${postTopY}`}
         fill="none"
-        className="stroke-mg-navy-800/45"
-        strokeWidth={radio * 0.16}
+        className="stroke-mg-navy-800/35"
+        strokeWidth={radio * 0.09}
+        strokeLinecap="round"
+      />
+      <path
+        d={`M ${rightX} ${postTopY + alto * 0.28} L ${rightX - ancho * 0.15} ${postTopY}`}
+        fill="none"
+        className="stroke-mg-navy-800/35"
+        strokeWidth={radio * 0.09}
+        strokeLinecap="round"
+      />
+      {/* Viga dintel horizontal, en el arranque del arco */}
+      <path
+        d={`M ${leftX} ${postTopY} L ${rightX} ${postTopY}`}
+        fill="none"
+        className="stroke-mg-navy-800/40"
+        strokeWidth={radio * 0.14}
+        strokeLinecap="round"
+      />
+      {/* Marco: postes + arco */}
+      <path
+        d={`M ${leftX} ${postBottomY}
+            L ${leftX} ${postTopY}
+            Q ${leftX} ${archPeakY} ${cx} ${archPeakY}
+            Q ${rightX} ${archPeakY} ${rightX} ${postTopY}
+            L ${rightX} ${postBottomY}`}
+        fill="none"
+        className="stroke-mg-navy-800/55"
+        strokeWidth={radio * 0.22}
         strokeLinecap="round"
       />
       <text
         x={cx}
-        y={cy - alto - radio * 0.45}
+        y={archPeakY - radio * 0.25}
         textAnchor="middle"
         className="fill-mg-navy-800 font-semibold"
-        style={{ fontSize: radio * 0.6 }}
+        style={{ fontSize: radio * 0.5 }}
       >
         Entrada
       </text>
+    </g>
+  )
+}
+
+// Icono minimalista de "sensor sin señal" (barras ascendentes), para que los
+// marcadores sin lecturas se lean como un sensor esperando datos, no como un
+// placeholder vacio.
+function IconoSinDatos({ cx, cy, radio }) {
+  const base = cy + radio * 0.32
+  const alturas = [radio * 0.34, radio * 0.56, radio * 0.78]
+  const anchoBarra = radio * 0.16
+  const espacio = radio * 0.08
+  const inicioX = cx - (3 * anchoBarra + 2 * espacio) / 2
+
+  return (
+    <g className="pointer-events-none" aria-hidden="true">
+      {alturas.map((h, i) => (
+        <rect
+          key={i}
+          x={inicioX + i * (anchoBarra + espacio)}
+          y={base - h}
+          width={anchoBarra}
+          height={h}
+          rx={anchoBarra * 0.3}
+          className="fill-slate-600/85"
+        />
+      ))}
     </g>
   )
 }
@@ -311,6 +405,7 @@ function PlanoPuntosControl({ puntos }) {
   const [activo, setActivo] = useState(null)
   const [aspecto, setAspecto] = useState(ASPECTO_POR_DEFECTO)
   const idGrid = useId()
+  const idSombraMarcador = useId()
 
   // El contenedor tiene un aspecto CSS responsivo (aspect-[4/3] en angosto,
   // hasta aspect-[21/9] en pantallas muy anchas - ver clases más abajo). En
@@ -400,6 +495,18 @@ function PlanoPuntosControl({ puntos }) {
               strokeWidth={escala.alto * 0.0015}
             />
           </pattern>
+          {/* Sombra sutil de los marcadores - los "levanta" del fondo. Usa
+              flood-color vía CSS custom property (los presentation
+              attributes de un filtro SVG no se pueden expresar con clases
+              de Tailwind) para mantenerse dentro de la paleta de marca. */}
+          <filter id={idSombraMarcador} x="-60%" y="-60%" width="220%" height="220%">
+            <feDropShadow
+              dx="0"
+              dy={escala.radio * 0.09}
+              stdDeviation={escala.radio * 0.11}
+              style={{ floodColor: "var(--color-mg-navy-900)", floodOpacity: 0.35 }}
+            />
+          </filter>
         </defs>
 
         {/* Fondo "papel tecnico": base clara + grid fino, decorativo. */}
@@ -412,9 +519,32 @@ function PlanoPuntosControl({ puntos }) {
           fill={`url(#${idGrid})`}
         />
 
-        {/* Tunel decorativo/esquematico - no es geometria real medida.
-            Ramas primero (mas delgadas/tenues), tunel principal encima
-            (mas grueso/opaco) para que se lea como el eje estructural. */}
+        {/* Tunel decorativo/esquematico - no es geometria real medida. Cada
+            tramo lleva un trazo de "sombra" mas oscuro y ancho detras, y el
+            trazo emerald encima, mas delgado, para que se lea con volumen
+            (galeria) en vez de una linea plana. Ramas primero (mas
+            delgadas/tenues), tunel principal encima (mas grueso/opaco) para
+            que se lea como el eje estructural. */}
+        {estructuraTunel.ramas.map((rama) => (
+          <path
+            key={`${rama.key}-sombra`}
+            d={rama.d}
+            fill="none"
+            className="stroke-emerald-900/15"
+            strokeWidth={escala.radio * 0.27}
+            strokeLinecap="round"
+          />
+        ))}
+        {estructuraTunel.principales.map((tramo) => (
+          <path
+            key={`${tramo.key}-sombra`}
+            d={tramo.d}
+            fill="none"
+            className="stroke-emerald-900/30"
+            strokeWidth={escala.radio * 0.52}
+            strokeLinecap="round"
+          />
+        ))}
         {estructuraTunel.ramas.map((rama) => (
           <path
             key={rama.key}
@@ -444,6 +574,10 @@ function PlanoPuntosControl({ puntos }) {
             ? (ESTILO_POR_NIVEL[punto.ultima_lectura.nivel_alerta] ?? ESTILO_SIN_DATOS)
             : ESTILO_SIN_DATOS
           const estaActivo = activo?.punto.id === punto.id
+          const sinDatos = !punto.ultima_lectura
+          const anchoChip = escala.radio * 2.0
+          const altoChip = escala.radio * 1.15
+          const yChip = punto.coord_y + escala.radio * 1.25
 
           return (
             <g key={punto.id}>
@@ -453,6 +587,7 @@ function PlanoPuntosControl({ puntos }) {
                 r={estaActivo ? escala.radio * 1.3 : escala.radio}
                 className={`${estilo.marcador} cursor-pointer opacity-90 transition-[r,opacity] duration-150 hover:opacity-100`}
                 strokeWidth={escala.radio * 0.18}
+                style={{ filter: `url(#${idSombraMarcador})` }}
                 tabIndex={0}
                 role="button"
                 aria-label={`Punto de control ${punto.nombre_estacion}, nivel ${estilo.etiqueta}`}
@@ -468,12 +603,25 @@ function PlanoPuntosControl({ puntos }) {
                   }
                 }}
               />
+              {sinDatos && <IconoSinDatos cx={punto.coord_x} cy={punto.coord_y} radio={escala.radio} />}
+
+              {/* Chip/badge de la etiqueta del punto, en vez de texto suelto */}
+              <rect
+                x={punto.coord_x - anchoChip / 2}
+                y={yChip}
+                width={anchoChip}
+                height={altoChip}
+                rx={altoChip / 2}
+                className="pointer-events-none fill-mg-surface-100 stroke-mg-navy-900/10"
+                strokeWidth={escala.radio * 0.05}
+              />
               <text
                 x={punto.coord_x}
-                y={punto.coord_y + escala.radio * 2.4}
+                y={yChip + altoChip / 2}
                 textAnchor="middle"
-                className="pointer-events-none fill-mg-navy-700 font-medium select-none"
-                style={{ fontSize: escala.radio * 0.85 }}
+                dominantBaseline="central"
+                className="pointer-events-none fill-mg-navy-800 font-semibold select-none"
+                style={{ fontSize: escala.radio * 0.78 }}
               >
                 {punto.nombre_estacion}
               </text>
