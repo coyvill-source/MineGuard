@@ -1,7 +1,8 @@
-import { useId, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 
 const PADDING_RATIO = 0.22
 const RADIO_RATIO = 0.032
+const ASPECTO_POR_DEFECTO = 16 / 9
 
 const ESTILO_POR_NIVEL = {
   optimo: { marcador: "fill-mg-safe-500 stroke-mg-safe-500", etiqueta: "Óptimo" },
@@ -12,7 +13,16 @@ const ESTILO_SIN_DATOS = { marcador: "fill-slate-400 stroke-slate-500", etiqueta
 
 // El plano es esquemático (no hay imagen de fondo real de la mina): coord_x
 // y coord_y se ubican tal cual en el plano cartesiano, sin invertir el eje Y.
-function calcularEscala(puntos) {
+//
+// `aspecto` (ancho/alto) permite que el viewBox coincida con el aspecto real
+// del contenedor en pantalla (medido con ResizeObserver en el componente) en
+// vez de ser siempre cuadrado: así el SVG llena el contenedor por completo,
+// sin franjas vacías a los lados en pantallas panorámicas. El padding y el
+// tamaño de los marcadores (`radio`) se calculan siempre sobre la extensión
+// real de los puntos (`extentBase`), nunca sobre el ancho extra que agrega
+// un aspecto panorámico - así los marcadores no cambian de tamaño solo
+// porque el contenedor se hizo más ancho.
+function calcularEscala(puntos, aspecto = 1) {
   const xs = puntos.map((p) => p.coord_x)
   const ys = puntos.map((p) => p.coord_y)
   const minX = Math.min(...xs)
@@ -20,16 +30,20 @@ function calcularEscala(puntos) {
   const minY = Math.min(...ys)
   const maxY = Math.max(...ys)
 
-  const extent = Math.max(maxX - minX, maxY - minY) || 1
+  const extentBase = Math.max(maxX - minX, maxY - minY) || 1
   const centroX = (minX + maxX) / 2
   const centroY = (minY + maxY) / 2
-  const mitad = (extent * (1 + PADDING_RATIO)) / 2
+  const base = extentBase * (1 + PADDING_RATIO)
+
+  const ancho = aspecto >= 1 ? base * aspecto : base
+  const alto = aspecto >= 1 ? base : base / aspecto
 
   return {
-    minX: centroX - mitad,
-    minY: centroY - mitad,
-    lado: mitad * 2,
-    radio: mitad * 2 * RADIO_RATIO,
+    minX: centroX - ancho / 2,
+    minY: centroY - alto / 2,
+    ancho,
+    alto,
+    radio: base * RADIO_RATIO,
   }
 }
 
@@ -172,12 +186,16 @@ function TooltipContenido({ punto }) {
 // los datos reales (ocurrio en pruebas: el punto "0" quedo justo en la
 // esquina superior-derecha, la posicion fija por defecto de la rosa).
 function elegirEsquinaRosa(escala, puntoEntrada) {
-  const margen = escala.lado * 0.12
+  // El margen se basa en `radio` (escala de los marcadores, ligada a la
+  // extensión real de los puntos) y no en `ancho`/`alto` del viewBox, para
+  // que la distancia al borde se vea igual de cómoda sin importar cuánto
+  // se haya ensanchado el viewBox por el aspecto panorámico.
+  const margen = escala.radio * 4.5
   const esquinas = [
     { x: escala.minX + margen, y: escala.minY + margen },
-    { x: escala.minX + escala.lado - margen, y: escala.minY + margen },
-    { x: escala.minX + margen, y: escala.minY + escala.lado - margen },
-    { x: escala.minX + escala.lado - margen, y: escala.minY + escala.lado - margen },
+    { x: escala.minX + escala.ancho - margen, y: escala.minY + margen },
+    { x: escala.minX + margen, y: escala.minY + escala.alto - margen },
+    { x: escala.minX + escala.ancho - margen, y: escala.minY + escala.alto - margen },
   ]
 
   if (!puntoEntrada) return esquinas[1] // superior derecha por defecto
@@ -193,7 +211,7 @@ function elegirEsquinaRosa(escala, puntoEntrada) {
 // tamaño proporcional al viewBox para que se vea igual sin importar cuanto
 // se extiendan los puntos. Usa los colores de marca (navy/accent).
 function RosaDeLosVientos({ escala, cx, cy }) {
-  const radio = escala.lado * 0.05
+  const radio = escala.radio * 1.56
 
   return (
     <g className="pointer-events-none select-none" aria-hidden="true">
@@ -291,13 +309,33 @@ function MarcaEntrada({ punto, radio }) {
 function PlanoPuntosControl({ puntos }) {
   const contenedorRef = useRef(null)
   const [activo, setActivo] = useState(null)
+  const [aspecto, setAspecto] = useState(ASPECTO_POR_DEFECTO)
   const idGrid = useId()
 
-  const escala = useMemo(() => calcularEscala(puntos), [puntos])
+  // El contenedor tiene un aspecto CSS responsivo (aspect-[4/3] en angosto,
+  // hasta aspect-[21/9] en pantallas muy anchas - ver clases más abajo). En
+  // vez de fijar el viewBox como cuadrado y dejar que el SVG "encoja" para
+  // caber (lo que deja franjas vacías a los lados), medimos el aspecto real
+  // del contenedor y se lo pasamos a calcularEscala para que el viewBox
+  // coincida exactamente: el plano llena todo el panel sin recortarse ni
+  // dejar espacio vacío.
+  useEffect(() => {
+    const elemento = contenedorRef.current
+    if (!elemento) return
+
+    const observador = new ResizeObserver((entradas) => {
+      const { width, height } = entradas[0].contentRect
+      if (width > 0 && height > 0) setAspecto(width / height)
+    })
+    observador.observe(elemento)
+    return () => observador.disconnect()
+  }, [])
+
+  const escala = useMemo(() => calcularEscala(puntos, aspecto), [puntos, aspecto])
   const estructuraTunel = useMemo(() => construirEstructuraTunel(puntos), [puntos])
   const puntoEntrada = useMemo(() => puntos.find((p) => p.nombre_estacion === "0") ?? null, [puntos])
   const esquinaRosa = useMemo(() => elegirEsquinaRosa(escala, puntoEntrada), [escala, puntoEntrada])
-  const pasoGrid = escala.lado / 20
+  const pasoGrid = escala.alto / 20
 
   const posicionRelativa = (evento) => {
     const contenedorRect = contenedorRef.current.getBoundingClientRect()
@@ -335,7 +373,7 @@ function PlanoPuntosControl({ puntos }) {
 
   if (puntos.length === 0) {
     return (
-      <div className="flex aspect-[4/3] items-center justify-center rounded-2xl border border-dashed border-mg-surface-100 bg-white text-sm text-mg-navy-700 xl:aspect-[16/9]">
+      <div className="flex aspect-[4/3] items-center justify-center rounded-2xl border border-dashed border-mg-surface-100 bg-white text-sm text-mg-navy-700 xl:aspect-[16/9] 2xl:aspect-[21/9]">
         No hay puntos de control activos para mostrar.
       </div>
     )
@@ -344,11 +382,11 @@ function PlanoPuntosControl({ puntos }) {
   return (
     <div
       ref={contenedorRef}
-      className="relative aspect-[4/3] w-full overflow-visible rounded-2xl border border-mg-surface-100 bg-white p-2 shadow-sm shadow-mg-navy-900/5 xl:aspect-[16/9]"
+      className="relative aspect-[4/3] w-full overflow-visible rounded-2xl border border-mg-surface-100 bg-white p-3 shadow-md shadow-mg-navy-900/8 ring-1 ring-mg-navy-900/5 transition-shadow duration-200 hover:shadow-lg hover:shadow-mg-navy-900/10 xl:aspect-[16/9] xl:p-4 2xl:aspect-[21/9]"
       onClick={() => setActivo((actual) => (actual?.fijado ? null : actual))}
     >
       <svg
-        viewBox={`${escala.minX} ${escala.minY} ${escala.lado} ${escala.lado}`}
+        viewBox={`${escala.minX} ${escala.minY} ${escala.ancho} ${escala.alto}`}
         className="h-full w-full"
         role="img"
         aria-label="Plano de puntos de control de la estación"
@@ -359,18 +397,18 @@ function PlanoPuntosControl({ puntos }) {
               d={`M ${pasoGrid} 0 L 0 0 0 ${pasoGrid}`}
               fill="none"
               className="stroke-mg-navy-900/5"
-              strokeWidth={escala.lado * 0.0015}
+              strokeWidth={escala.alto * 0.0015}
             />
           </pattern>
         </defs>
 
         {/* Fondo "papel tecnico": base clara + grid fino, decorativo. */}
-        <rect x={escala.minX} y={escala.minY} width={escala.lado} height={escala.lado} className="fill-mg-surface-50" />
+        <rect x={escala.minX} y={escala.minY} width={escala.ancho} height={escala.alto} className="fill-mg-surface-50" />
         <rect
           x={escala.minX}
           y={escala.minY}
-          width={escala.lado}
-          height={escala.lado}
+          width={escala.ancho}
+          height={escala.alto}
           fill={`url(#${idGrid})`}
         />
 

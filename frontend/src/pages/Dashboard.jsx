@@ -26,7 +26,7 @@ function AvisoModeloTemporal() {
           clipRule="evenodd"
         />
       </svg>
-      <p>
+      <p className="max-w-3xl leading-relaxed">
         Los niveles de alerta (óptimo/alerta/crítico) ya se calculan con los umbrales reales del{" "}
         <strong>Decreto 1886</strong>, convirtiendo la lectura de gas de ppm a % de metano. El{" "}
         <strong>StandardScaler</strong> que usa el modelo de predicción sigue siendo una{" "}
@@ -40,13 +40,24 @@ function AvisoModeloTemporal() {
 
 function LeyendaSemaforo() {
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-mg-navy-700">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
       {LEYENDA.map((item) => (
-        <div key={item.etiqueta} className="flex items-center gap-1.5">
-          <span className={`h-2.5 w-2.5 rounded-full ${item.color}`} aria-hidden="true" />
-          {item.etiqueta}
+        <div key={item.etiqueta} className="flex items-center gap-2">
+          <span className={`h-2.5 w-2.5 rounded-full ring-2 ring-white ${item.color}`} aria-hidden="true" />
+          <span className="text-xs font-medium text-mg-navy-700">{item.etiqueta}</span>
         </div>
       ))}
+    </div>
+  )
+}
+
+function BarraPlano() {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-mg-surface-100 bg-white px-4 py-3 shadow-sm shadow-mg-navy-900/5">
+      <LeyendaSemaforo />
+      <p className="text-xs text-mg-navy-700/70">
+        Pasa el mouse o toca un punto para ver el detalle. Se actualiza automáticamente.
+      </p>
     </div>
   )
 }
@@ -56,13 +67,13 @@ function Dashboard() {
   const { puntos, isLoading, error, huboCargaExitosa, recargar } = useEstadoActual(token)
 
   return (
-    <DashboardLayout titulo="Plano de puntos de control">
+    <DashboardLayout titulo="Plano de puntos de control" anchoCompleto>
       <div className="mt-4">
         <AvisoModeloTemporal />
       </div>
 
       {isLoading ? (
-        <div className="mt-6 flex aspect-[4/3] items-center justify-center rounded-2xl border border-mg-surface-100 bg-white text-sm text-mg-navy-700 xl:aspect-[16/9]">
+        <div className="mt-6 flex aspect-[4/3] items-center justify-center rounded-2xl border border-mg-surface-100 bg-white text-sm text-mg-navy-700 xl:aspect-[16/9] 2xl:aspect-[21/9]">
           Cargando estado de los puntos de control...
         </div>
       ) : error && !huboCargaExitosa ? (
@@ -84,11 +95,8 @@ function Dashboard() {
             </p>
           )}
 
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-            <LeyendaSemaforo />
-            <p className="text-xs text-mg-navy-700/70">
-              Pasa el mouse o toca un punto para ver el detalle. Se actualiza automáticamente.
-            </p>
+          <div className="mt-6">
+            <BarraPlano />
           </div>
 
           <div className="mt-3">

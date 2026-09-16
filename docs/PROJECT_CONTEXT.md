@@ -254,6 +254,72 @@ pertenece.
     esquina superior-derecha por defecto (comportamiento anterior).
     Verificado en navegador real: sin solape, tooltip y colores
     intactos.
+- DECISIÓN (2026-09-16): el Dashboard (plano de puntos de control) usa
+  ahora todo el ancho disponible del área de contenido, y el
+  componente `PlanoPuntosControl.jsx` recibió un pulido visual
+  integral — pedido explícito del usuario ("la parte más importante
+  del proyecto" visualmente), caso de uso principal en centros de
+  control con monitores panorámicos (ver manual técnico).
+  - **Ancho completo, solo en Dashboard**: `DashboardLayout.jsx` tenía
+    un único wrapper `mx-auto max-w-[1600px]` aplicado a TODAS las
+    páginas (Dashboard, Puntos de Control, Alertas). Se agregó una
+    prop `anchoCompleto` (default `false`, sin cambios de
+    comportamiento para las demás páginas): cuando es `true`, el
+    wrapper usa `w-full` en vez del límite de 1600px. Solo
+    `Dashboard.jsx` la activa (`<DashboardLayout anchoCompleto>`) —
+    `PuntosControl.jsx` y `Alertas.jsx` no la usan porque son
+    tablas/formularios que no se benefician de tanto ancho.
+  - **Texto del aviso `AvisoModeloTemporal` acotado**: aunque la
+    página ya no tiene límite de ancho, el párrafo del aviso sobre el
+    StandardScaler se mantiene con `max-w-3xl` (la caja/fondo del
+    aviso sí ocupa el ancho completo) para que la línea de texto no se
+    estire a un largo incómodo de leer en monitores muy anchos.
+  - **`viewBox` con aspecto dinámico (elimina franjas vacías)**: antes
+    el `viewBox` del SVG era siempre cuadrado (`lado x lado`) dentro
+    de un contenedor con aspecto `4/3`/`16/9`, lo que dejaba franjas
+    vacías a los lados (letterboxing) — un problema que se volvía más
+    notorio mientras más ancho fuera el contenedor. Se corrigió
+    midiendo el aspecto real del contenedor con `ResizeObserver`
+    (estado `aspecto` en `PlanoPuntosControl`) y pasándolo a
+    `calcularEscala(puntos, aspecto)`, que ahora calcula `ancho`/`alto`
+    del `viewBox` (reemplaza el antiguo `lado` único) coincidiendo con
+    ese aspecto real — el SVG llena el panel por completo, sin
+    recortes ni espacio vacío, en cualquier tamaño de pantalla. El
+    padding y el tamaño de los marcadores (`radio`) se siguen
+    calculando sobre la extensión real de los puntos (`extentBase`),
+    nunca sobre el ancho extra del aspecto panorámico, para que los
+    marcadores no cambien de tamaño solo porque el contenedor se hizo
+    más ancho. El paso de la cuadrícula (`pasoGrid = escala.alto / 20`)
+    también se ató a `alto` (no afectado por el aspecto) para que el
+    tamaño de celda del "papel técnico" se mantenga consistente y
+    solo aparezcan más columnas al ensanchar, como en papel
+    cuadriculado real.
+  - **Aspecto del contenedor progresivo**: `aspect-[4/3]` en angosto →
+    `xl:aspect-[16/9]` → `2xl:aspect-[21/9]` en pantallas muy anchas,
+    para que la altura del panel no crezca sin control en monitores
+    ultrawide (antes se detenía en `16/9`).
+  - **Rosa de los vientos y marca de entrada**: sus fórmulas de tamaño
+    y margen se migraron de `escala.lado` a `escala.radio` (rosa) y a
+    `escala.ancho`/`escala.alto` (márgenes de `elegirEsquinaRosa`),
+    preservando el tamaño/posición relativa que ya se había verificado
+    - no fue necesario tocar `MarcaEntrada`, que ya usaba `radio`.
+  - **Panel más pulido**: contenedor del plano con sombra más marcada
+    (`shadow-md` con transición a `shadow-lg` en hover), anillo sutil
+    (`ring-1 ring-mg-navy-900/5`) y más padding interno
+    (`p-3`/`xl:p-4`), sin cambiar bordes ni radios ya aprobados.
+  - **Barra de leyenda**: la leyenda del semáforo y el texto de ayuda
+    ("Pasa el mouse...") se agruparon en una barra tipo "toolbar"
+    (`BarraPlano`) con el mismo tratamiento de panel (borde, fondo
+    blanco, sombra sutil) que el plano, para que se lea como una sola
+    pieza cohesiva en vez de texto suelto; los puntos de color de la
+    leyenda ganaron un anillo blanco (`ring-2 ring-white`) para verse
+    más nítidos.
+  - Nada de lo ya verificado cambió de comportamiento: tooltip
+    (hover/click/teclado), colores del semáforo, estructura del túnel
+    (principal + 3 ramas), marca de entrada, y la paleta de marca
+    (mg-navy/mg-accent/mg-safe/alert/danger, más `emerald` para el
+    túnel y `slate` para "sin datos" - ya aprobados, no se agregaron
+    colores nuevos).
 - MEJORA PENDIENTE (no bloqueante): el pipeline ML en
   POST /api/telemetria/ingesta-archivo ejecuta el escalado
   (scaler.transform) y la inferencia (model.predict) fila por fila, en

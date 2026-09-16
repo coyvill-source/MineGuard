@@ -11,8 +11,14 @@ import MenuLateral from "./MenuLateral"
  * `children` puede ser un nodo normal, o una funcion `(usuario) => nodo` para
  * paginas que necesitan el rol del usuario (viene del mismo `me(token)` que
  * ya se usaba antes en Dashboard.jsx, ahora centralizado aqui).
+ *
+ * `anchoCompleto`: por defecto el contenido va centrado con un ancho maximo
+ * (max-w-[1600px], ideal para tablas/formularios). El Dashboard lo activa
+ * porque el plano de puntos de control se beneficia de usar todo el ancho
+ * disponible en monitores panoramicos (caso de uso principal en centros de
+ * control) - ver docs/PROJECT_CONTEXT.md.
  */
-function DashboardLayout({ titulo, children }) {
+function DashboardLayout({ titulo, anchoCompleto = false, children }) {
   const navigate = useNavigate()
   const { token, logout } = useAuth()
   const [usuario, setUsuario] = useState(null)
@@ -65,7 +71,7 @@ function DashboardLayout({ titulo, children }) {
         <MenuLateral rol={usuario?.rol} abierto={menuAbierto} onCerrar={() => setMenuAbierto(false)} />
 
         <main className="min-w-0 flex-1 px-6 py-8 sm:px-10">
-          <div className="mx-auto max-w-[1600px]">
+          <div className={anchoCompleto ? "w-full" : "mx-auto max-w-[1600px]"}>
             {titulo && (
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h1 className="text-2xl font-bold text-mg-navy-900">{titulo}</h1>
