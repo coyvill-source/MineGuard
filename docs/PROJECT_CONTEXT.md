@@ -571,6 +571,84 @@ pertenece.
     correcto tras el fix de `useLayoutEffect`) - `getBBox()` confirma
     que nada se recorta en ningún caso, tooltip funcional, sin errores
     de consola.
+- DECISIÓN (2026-09-16): quinta ronda - se recuperó el ANCHO COMPLETO
+  del panel del plano sin perder el ajuste de ALTO SIN SCROLL de la
+  ronda anterior (ambas cosas a la vez). La ronda 4 había introducido
+  un `aspectoContenedor` calculado del bounding box de los puntos
+  (piso 1.4, techo 2.0) que derivaba el ANCHO del ALTO disponible -
+  eso resolvía el scroll, pero como consecuencia dejaba el panel
+  angosto y centrado en pantallas donde el ancho "correcto" según ese
+  aspecto era menor que el ancho real disponible (confirmado con
+  captura real del usuario). La causa raíz: ancho y alto competían
+  entre sí a través de un aspecto compartido - solo se podía elegir
+  uno como restricción activa.
+  - **Arreglo**: ancho y alto del panel dejaron de derivarse el uno
+    del otro. Ahora son completamente independientes:
+    - **Ancho**: `w-full` (100% del contenedor padre, sin límite) -
+      exactamente el mismo mecanismo de "ancho completo" de la
+      ronda de `ancho completo` original.
+    - **Alto**: explícito en px, `calcularAltoDisponible()` = `max(window.innerHeight - RESERVA_VERTICAL_PX, ALTURA_MINIMA_PX)`
+      - el mismo cálculo de la ronda 4 (sin cambios), pero ya no
+        alimenta ningún cálculo de ancho.
+    - El **aspecto del `viewBox`** (para que el SVG llene la caja sin
+      dejar franjas vacías - "letterboxing") se sigue midiendo con
+      `ResizeObserver` sobre el contenedor YA renderizado (ancho
+      completo x alto fijo), igual que el mecanismo original de la
+      ronda de "ancho completo": el SVG se adapta a la caja
+      disponible, la caja ya NO se adapta a la forma de los datos.
+      `calcularAspectoContenedor` (el bounding box de los puntos,
+      piso/techo 1.4-2.0) se eliminó por completo - ya no tiene
+      ningún rol en el tamaño del panel.
+  - **Simplificación**: al independizar ancho y alto, ya no hace
+    falta la lógica de "recortar el ancho si no cabe" ni la
+    corrección de `useLayoutEffect` para la condición de carrera
+    ancho-vs-alto de la ronda anterior (esos problemas solo existían
+    porque ancho y alto competían) - el componente volvió a un
+    `ResizeObserver` simple (mide `contentRect.width`/`height` ya
+    renderizados, sin ambigüedad de tamaño intrínseco) muy parecido al
+    de la ronda de "ancho completo" original, combinado con el alto
+    explícito de la ronda 4.
+  - **`RESERVA_VERTICAL_PX`/`ALTURA_MINIMA_PX` centralizadas**: vivían
+    duplicadas (un valor en rem dentro de Dashboard.jsx, otro en px
+    dentro de PlanoPuntosControl.jsx, desincronizados entre sí - un
+    bug latente). Se movieron a `frontend/src/lib/layoutPlano.js`
+    (junto con `calcularAltoDisponible()`) como fuente única, importada
+    por ambos archivos. Esto también evitó un warning nuevo de lint
+    (`react(only-export-components)`) por exportar constantes desde un
+    archivo de componente.
+  - Verificación en navegador real, en las 3 resoluciones pedidas
+    explícitamente (método de iframe real embebido, ya usado en rondas
+    anteriores, con login real y datos reales de la Estación
+    Chicamocha):
+    - **1366×768 (laptop estándar)**: `scrollDiff: 0` (sin scroll).
+      Ancho del panel = 1041.6px, coincide EXACTO (mismo ancho, mismo
+      borde izquierdo) con el ancho del banner informativo - confirma
+      ancho completo real, no una franja centrada. `getBBox()`:
+      márgenes positivos en los 4 lados (nada recortado). Tooltip
+      funcional (hover). Sin errores de consola. Captura visual
+      confirma el panel ocupando todo el ancho bajo el sidebar, sin
+      espacio vacío a los lados, y todo el contenido (banner + leyenda
+      + panel) visible sin scroll.
+    - **2560×1080 (pantalla panorámica ancha)**: `scrollDiff: 0` (sin
+      scroll). Ancho del panel = 2235.2px, coincide EXACTO con el
+      ancho del banner. `getBBox()`: márgenes positivos. Tooltip
+      funcional. Sin errores de consola.
+    - **1600×900 (ventana intermedia)**: `scrollDiff: 0` (sin scroll).
+      Ancho del panel = 1275.2px, coincide EXACTO con el ancho del
+      banner. `getBBox()`: márgenes positivos. Tooltip funcional. Sin
+      errores de consola. Captura visual confirma ambas condiciones a
+      la vez (ancho completo + todo visible sin scroll).
+    - Verificación adicional (no pedida explícitamente, pero para
+      confirmar que no se rompió lo ya logrado): **395×895 (angosto/
+      tablet)** - el panel sigue usando el ancho completo disponible
+      (332px, igual al área de contenido menos el padding del
+      `<main>`), sin recortes (`getBBox()`), tooltip funcional. Sí
+      aparece un scroll de ~284px en este caso - esperado y aceptado
+      explícitamente por el usuario para pantallas angostas (el
+      banner informativo envuelve a más líneas de texto en un
+      contenedor angosto, superando la reserva vertical calibrada
+      para layouts anchos) - mismo comportamiento ya aceptado en la
+      ronda anterior para este caso límite.
 - MEJORA PENDIENTE (no bloqueante): el pipeline ML en
   POST /api/telemetria/ingesta-archivo ejecuta el escalado
   (scaler.transform) y la inferencia (model.predict) fila por fila, en

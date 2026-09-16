@@ -3,6 +3,7 @@ import ErrorBoundary from "../components/ErrorBoundary"
 import PlanoPuntosControl from "../components/dashboard/PlanoPuntosControl"
 import { useAuth } from "../context/AuthContext"
 import { useEstadoActual } from "../hooks/useEstadoActual"
+import { ALTURA_MINIMA_PX, RESERVA_VERTICAL_PX } from "../lib/layoutPlano"
 
 const LEYENDA = [
   { color: "bg-mg-safe-500", etiqueta: "Óptimo" },
@@ -74,8 +75,8 @@ function Dashboard() {
 
       {isLoading ? (
         <div
-          className="mt-6 flex aspect-[4/3] items-center justify-center rounded-2xl border border-mg-surface-100 bg-white text-sm text-mg-navy-700 xl:aspect-[16/9]"
-          style={{ maxHeight: "calc(100vh - 21rem)" }}
+          className="mt-6 flex items-center justify-center rounded-2xl border border-mg-surface-100 bg-white text-sm text-mg-navy-700"
+          style={{ height: `max(calc(100vh - ${RESERVA_VERTICAL_PX}px), ${ALTURA_MINIMA_PX}px)` }}
         >
           Cargando estado de los puntos de control...
         </div>
@@ -102,14 +103,7 @@ function Dashboard() {
             <BarraPlano />
           </div>
 
-          {/* justify-center: dentro de un flex, PlanoPuntosControl deja de
-              forzar ancho=100% (ver max-w-full + max-height + aspect-ratio
-              en su propio contenedor) para poder encoger su ancho cuando la
-              altura del viewport es la restricción activa - así todo el
-              dashboard cabe sin scroll en laptops estándar. Centrado
-              horizontal para que no quede pegado a la izquierda cuando el
-              panel termina siendo más angosto que el área disponible. */}
-          <div className="mt-3 flex justify-center">
+          <div className="mt-3">
             <ErrorBoundary>
               <PlanoPuntosControl puntos={puntos} />
             </ErrorBoundary>

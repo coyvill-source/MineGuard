@@ -1,49 +1,11 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { calcularAltoDisponible } from "../../lib/layoutPlano"
 
 const RADIO_RATIO = 0.039
-
-// Limites del aspecto ancho:alto del CONTENEDOR (no del viewBox - ver
-// calcularAspectoContenedor). Sin limites, un conjunto de puntos casi
-// cuadrado forzaria un panel casi cuadrado (poco "panorama") y uno muy
-// alargado forzaria un panel absurdamente ancho o alto. El piso garantiza
-// que el panel siempre se lea como "mas ancho que alto"; el techo evita que
-// crezca demasiado en pantallas ultra anchas (ver DECISIÓN en
-// docs/PROJECT_CONTEXT.md).
-const ASPECTO_CONTENEDOR_MIN = 1.4
-const ASPECTO_CONTENEDOR_MAX = 2.0
-
-// Espacio vertical reservado arriba/abajo del panel: header + padding del
-// <main> + banner + leyenda + margenes entre ellos + padding inferior de
-// la pagina (medido en navegador real a 1366x768 - ver DECISIÓN en
-// docs/PROJECT_CONTEXT.md). Se resta de `window.innerHeight` para que el
-// panel nunca obligue a hacer scroll vertical en un dashboard de escritorio
-// estandar - ver `calcularDimensiones`.
-const RESERVA_VERTICAL_PX = 380
-// Piso de altura: por debajo de esto el texto de los chips deja de ser
-// legible (medido en navegador real: a 260px el chip quedaba en ~7px de
-// alto de fuente en pantalla). Se prioriza un pequeño scroll (pantallas
-// muy bajas, ej. ventana no maximizada) antes que encogerlo mas - a
-// 1366x768 maximizado (~760px de alto util) el panel ya queda bastante
-// por encima de este piso, así que no dispara scroll ahí.
-const ALTURA_MINIMA_PX = 340
-
-// Calcula el ancho/alto EXPLICITOS (en px) del panel a partir del ancho
-// disponible del contenedor padre y del alto disponible del viewport. Se
-// usan valores explicitos (no `aspect-ratio` + `max-height` en CSS) porque
-// el panel contiene un <svg> cuyo tamaño depende del 100% de este mismo
-// contenedor - eso crea una referencia circular en el calculo de tamaño
-// intrinseco de un flex item (el navegador termina resolviendo un tamaño
-// pequeño arbitrario en vez de respetar `max-height`, verificado en
-// navegador real). Calculando ambas dimensiones nosotros mismos se evita
-// por completo esa ambiguedad: se prioriza SIEMPRE caber en la altura
-// visible (`alturaDisponible`), y el ancho se deriva de esa altura y el
-// aspecto de los datos, recortado si no cabe en el ancho disponible.
-function calcularDimensiones(anchoDisponible, aspecto) {
-  const alturaDisponible = Math.max(window.innerHeight - RESERVA_VERTICAL_PX, ALTURA_MINIMA_PX)
-  const anchoPorAltura = alturaDisponible * aspecto
-  const ancho = anchoDisponible > 0 ? Math.min(anchoDisponible, anchoPorAltura) : anchoPorAltura
-  return { ancho, alto: ancho / aspecto }
-}
+// Aspecto de respaldo para el primer render, antes de que el
+// ResizeObserver mida el aspecto real del contenedor ya pintado (ver
+// PlanoPuntosControl). Solo importa por una fracción de segundo.
+const ASPECTO_POR_DEFECTO = 16 / 9
 
 // Margenes de encuadre, en multiplos de `radio` (ver calcularEscala): no son
 // un porcentaje arbitrario, son la huella real que cada elemento decorativo
@@ -54,25 +16,6 @@ function calcularDimensiones(anchoDisponible, aspecto) {
 const MARGEN_LATERAL = 2.15 // marcador agrandado en hover/foco (radio*1.3) + su stroke, y tambien el radio que usa la rosa de los vientos en su esquina (ver elegirEsquinaRosa) - subio de 2.0 a 2.15 al agrandar la rosa
 const MARGEN_PORTAL = 3.6 // alcance vertical del portal de "Entrada" (arco + etiqueta de texto) sobre el punto "0"
 const MARGEN_CHIP = 2.65 // alcance del chip de etiqueta debajo de cada punto - subio de 2.5 a 2.65 al agrandar el chip (ronda 4, legibilidad)
-
-// Aspecto (ancho/alto) del CONTENEDOR calculado dinamicamente a partir del
-// bounding box real de los puntos, no de breakpoints fijos (4/3, 16/9,
-// 21/9 como en la ronda anterior). Los puntos reales se distribuyen en
-// diagonal con mas extension horizontal que vertical; forzar el panel a un
-// aspecto panoramico fijo (ej. 21/9) dejaba las esquinas opuestas a esa
-// diagonal (arriba-izquierda, abajo-derecha) visiblemente vacias, porque el
-// contenido (ya ajustado en la ronda anterior, ver MARGEN_*) es bastante
-// mas cuadrado que un aspecto panoramico. Usar el aspecto real de los datos
-// hace que el panel "abrace" la forma del contenido - ver DECISIÓN en
-// docs/PROJECT_CONTEXT.md para la justificacion completa del piso/techo.
-function calcularAspectoContenedor(puntos) {
-  const xs = puntos.map((p) => p.coord_x)
-  const ys = puntos.map((p) => p.coord_y)
-  const extentX = Math.max(...xs) - Math.min(...xs) || 1
-  const extentY = Math.max(...ys) - Math.min(...ys) || 1
-  const bruto = extentX / extentY
-  return Math.min(Math.max(bruto, ASPECTO_CONTENEDOR_MIN), ASPECTO_CONTENEDOR_MAX)
-}
 
 const ESTILO_POR_NIVEL = {
   optimo: { marcador: "fill-mg-safe-500 stroke-mg-safe-500", etiqueta: "Óptimo" },
@@ -475,60 +418,47 @@ function PlanoPuntosControl({ puntos }) {
   const idGrid = useId()
   const idSombraMarcador = useId()
 
-  // Aspecto del CONTENEDOR calculado del bounding box real de los puntos
-  // (ver calcularAspectoContenedor): el panel "abraza" la forma real de los
-  // datos en vez de forzar un panorama fijo que dejaba las esquinas
-  // opuestas a la diagonal de los puntos visiblemente vacías (ver DECISIÓN
-  // en docs/PROJECT_CONTEXT.md).
-  const aspectoContenedor = useMemo(() => calcularAspectoContenedor(puntos), [puntos])
+  // Alto EXPLICITO del panel (px), derivado SOLO del viewport - ver
+  // calcularAltoDisponible. El ancho es simplemente `w-full` (ancho
+  // completo del contenedor padre, ver JSX abajo): ancho y alto ya NO se
+  // derivan el uno del otro a traves de un aspecto fijo (eso fue lo que
+  // rompio el ancho completo en la ronda anterior - ver DECISIÓN en
+  // docs/PROJECT_CONTEXT.md). El estado inicial ya usa `window.innerHeight`
+  // (disponible de entrada en un SPA) para evitar un parpadeo en la
+  // primera pintura.
+  const [altoDisponible, setAltoDisponible] = useState(calcularAltoDisponible)
 
-  // Ancho/alto EXPLICITOS del panel (ver calcularDimensiones): dependen del
-  // ancho disponible del contenedor padre (mide con ResizeObserver, igual
-  // que antes) Y del alto disponible del viewport (`window.innerHeight`),
-  // para que el panel nunca obligue a hacer scroll vertical en desktop -
-  // prioridad maxima de esta ronda. El estado inicial ya usa
-  // `window.innerHeight` (disponible de entrada en un SPA, sin problema de
-  // SSR) para evitar un parpadeo con el tamaño por defecto en la primera
-  // pintura.
-  const [dimensiones, setDimensiones] = useState(() => calcularDimensiones(0, aspectoContenedor))
+  // Aspecto REAL ya renderizado del contenedor (ancho completo x alto fijo
+  // de arriba), medido con ResizeObserver - se le pasa a calcularEscala
+  // para que el viewBox coincida exactamente con esa caja (ancho x alto),
+  // sin importar la forma de los datos: el SVG se adapta a la caja
+  // disponible, la caja no se adapta a los datos (eso es justamente lo que
+  // pidió esta ronda). Mismo mecanismo que ya se uso para eliminar el
+  // letterboxing hace varias rondas, solo que ahora ambas dimensiones de
+  // la caja son explicitas (ancho completo, alto sin scroll) en vez de
+  // depender de un `aspect-ratio` CSS.
+  const [aspecto, setAspecto] = useState(ASPECTO_POR_DEFECTO)
 
-  // useLayoutEffect (no useEffect): la primera medida real del ancho del
-  // padre se hace de forma SÍNCRONA, antes de que el navegador pinte -
-  // esperar al primer callback (asíncrono) del ResizeObserver dejaba una
-  // ventana donde se pintaba con el ancho de respaldo (el que cabe según
-  // la altura, sin recortar por ancho) y en pantallas angostas ese ancho
-  // de respaldo es mayor que el disponible: el navegador terminaba
-  // recortando el ancho (flex-shrink) sin volver a derivar el alto,
-  // dejando el panel con una relación de aspecto incorrecta (verificado en
-  // navegador real, angosto).
   useLayoutEffect(() => {
-    const elementoPadre = contenedorRef.current?.parentElement
-    if (!elementoPadre) return
-
-    function recalcular(anchoDisponible) {
-      setDimensiones(calcularDimensiones(anchoDisponible, aspectoContenedor))
-    }
-
-    recalcular(elementoPadre.getBoundingClientRect().width)
+    const elemento = contenedorRef.current
+    if (!elemento) return
 
     const observador = new ResizeObserver((entradas) => {
-      recalcular(entradas[0].contentRect.width)
+      const { width, height } = entradas[0].contentRect
+      if (width > 0 && height > 0) setAspecto(width / height)
     })
-    observador.observe(elementoPadre)
+    observador.observe(elemento)
 
-    // El ResizeObserver del padre no dispara si solo cambia la altura del
-    // viewport (ej. la barra de direcciones del navegador se oculta) sin
-    // que el ancho disponible cambie - el listener de resize cubre ese caso.
-    const alRedimensionar = () => recalcular(elementoPadre.getBoundingClientRect().width)
+    const alRedimensionar = () => setAltoDisponible(calcularAltoDisponible())
     window.addEventListener("resize", alRedimensionar)
 
     return () => {
       observador.disconnect()
       window.removeEventListener("resize", alRedimensionar)
     }
-  }, [aspectoContenedor])
+  }, [])
 
-  const escala = useMemo(() => calcularEscala(puntos, aspectoContenedor), [puntos, aspectoContenedor])
+  const escala = useMemo(() => calcularEscala(puntos, aspecto), [puntos, aspecto])
   const estructuraTunel = useMemo(() => construirEstructuraTunel(puntos), [puntos])
   const puntoEntrada = useMemo(() => puntos.find((p) => p.nombre_estacion === "0") ?? null, [puntos])
   const esquinaRosa = useMemo(() => elegirEsquinaRosa(escala, puntoEntrada), [escala, puntoEntrada])
@@ -571,8 +501,8 @@ function PlanoPuntosControl({ puntos }) {
   if (puntos.length === 0) {
     return (
       <div
-        className="flex aspect-[4/3] w-full items-center justify-center rounded-2xl border border-dashed border-mg-surface-100 bg-white text-sm text-mg-navy-700 xl:aspect-[16/9]"
-        style={{ maxHeight: "calc(100vh - 21rem)" }}
+        className="flex w-full items-center justify-center rounded-2xl border border-dashed border-mg-surface-100 bg-white text-sm text-mg-navy-700"
+        style={{ height: calcularAltoDisponible() }}
       >
         No hay puntos de control activos para mostrar.
       </div>
@@ -590,16 +520,16 @@ function PlanoPuntosControl({ puntos }) {
       // importante del dashboard y debe sentirse claramente elevado, sin
       // introducir un color de sombra nuevo.
       //
-      // Ancho/alto explícitos en px (ver calcularDimensiones) en vez de
-      // `w-full` + `aspect-ratio`: priorizan caber en la altura visible del
-      // viewport - si el ancho completo haría que la altura (según
-      // `aspectoContenedor`) exceda el espacio vertical disponible, el
-      // ancho se reduce para mantener la relación de aspecto en vez de
-      // forzar scroll. `w-full` (ronda 3) forzaba ancho=100% siempre y
-      // dejaba que la altura creciera libre - eso es exactamente lo que
-      // obligaba a hacer scroll en laptops estándar (1366x768).
-      className="relative overflow-visible rounded-2xl border border-mg-surface-100 bg-white p-3 shadow-xl shadow-mg-navy-900/10 ring-1 ring-mg-navy-900/5 transition-shadow duration-200 hover:shadow-2xl hover:shadow-mg-navy-900/15 xl:p-4"
-      style={{ width: dimensiones.ancho, height: dimensiones.alto }}
+      // `w-full` (ancho completo, siempre) + alto EXPLICITO en px (ver
+      // calcularAltoDisponible, solo depende del viewport): ancho y alto ya
+      // no compiten entre si a traves de un aspecto fijo compartido - la
+      // ronda anterior derivaba el ancho del alto vía `aspectoContenedor`,
+      // lo que dejaba el panel angosto y centrado en vez de a todo lo
+      // ancho. El viewBox (ver `escala`, más abajo) se adapta a la caja
+      // resultante vía `aspecto` medido con ResizeObserver, así que nunca
+      // hay letterboxing sin importar que tan panorámica quede la caja.
+      className="relative w-full overflow-visible rounded-2xl border border-mg-surface-100 bg-white p-3 shadow-xl shadow-mg-navy-900/10 ring-1 ring-mg-navy-900/5 transition-shadow duration-200 hover:shadow-2xl hover:shadow-mg-navy-900/15 xl:p-4"
+      style={{ height: altoDisponible }}
       onClick={() => setActivo((actual) => (actual?.fijado ? null : actual))}
     >
       <svg
