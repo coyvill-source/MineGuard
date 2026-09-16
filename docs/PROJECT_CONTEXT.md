@@ -481,6 +481,96 @@ pertenece.
     (márgenes positivos en los 4 lados), `aspectRatio` computado
     confirmado en ambos (`1.4/1`, el piso, con los datos reales),
     tooltip funcional (hover/click), sin errores de consola.
+- DECISIÓN (2026-09-16): cuarta ronda de ajustes sobre el Dashboard -
+  problema crítico reportado por el usuario: el aspecto más ancho de
+  la ronda 3 (`aspect-ratio` + `w-full`) dejaba que la ALTURA creciera
+  libre a partir del ancho completo, y en laptops estándar (1366x768)
+  eso obligaba a hacer scroll vertical para ver el plano completo -
+  inaceptable para un dashboard de monitoreo ("de un vistazo, sin
+  scroll"). Prioridad máxima: que TODO el contenido (banner + leyenda
+  + panel) quepa en la altura visible del viewport en desktop/laptop
+  estándar, con un pulido tipográfico adicional una vez que el panel
+  quedó más compacto.
+  - **Tarea 1 - Altura sin scroll**: `PlanoPuntosControl.jsx` dejó de
+    usar `w-full` + `aspect-ratio` (CSS puro) y ahora calcula el
+    ancho/alto del panel EXPLÍCITAMENTE en JS
+    (`calcularDimensiones(anchoDisponible, aspecto)`):
+    - `alturaDisponible = max(window.innerHeight - RESERVA_VERTICAL_PX, ALTURA_MINIMA_PX)`.
+      `RESERVA_VERTICAL_PX = 380` es el espacio que ocupan header +
+      padding del `<main>` + banner + leyenda + márgenes + padding
+      inferior de la página - medido de verdad en navegador real
+      (`panelTop ≈ 340px` + `~40px` de margen inferior), no adivinado.
+    - `ancho = min(anchoDisponible, alturaDisponible * aspecto)` - el
+      ancho se recorta si no cabe en el ancho real disponible del
+      contenedor padre (medido con `ResizeObserver`, igual que antes),
+      y el alto se deriva siempre de ese ancho final para mantener el
+      aspecto exacto (`alto = ancho / aspecto`) - así el plano
+      SIEMPRE prioriza caber en la altura visible sobre ser lo más
+      ancho posible.
+    - **Por qué JS explícito y no `aspect-ratio` + `max-height` en
+      CSS**: se intentó primero con CSS puro (`max-width:100%` +
+      `max-height:calc(100vh - ...)` + `aspect-ratio` dentro de un
+      padre flex) - en navegador real, el `<svg>` hijo con
+      `w-full h-full` (100% de un padre cuyo tamaño depende a su vez
+      de `aspect-ratio`) genera una referencia circular en el cálculo
+      de tamaño intrínseco de un flex item: el navegador terminaba
+      resolviendo un ancho pequeño arbitrario en vez de respetar
+      `max-height` (verificado con capturas y medición real: el panel
+      quedaba de 333px de ancho en una ventana con 1000px+
+      disponibles). Sacar el SVG del flujo (`position:absolute`) tampoco
+      alcanzó (el flex item colapsaba a su tamaño mínimo sin ninguna
+      señal de tamaño). Calcular ambas dimensiones explícitamente evita
+      por completo la ambigüedad.
+    - **`useLayoutEffect`, no `useEffect`**: la primera medida del
+      ancho del padre debe ser SÍNCRONA antes de pintar - con
+      `useEffect` (asíncrono) el navegador llegaba a pintar primero con
+      el ancho de respaldo (el que cabe según la altura, sin recortar
+      por ancho), y si ese ancho de respaldo excedía el ancho real
+      disponible, el navegador recortaba el ancho renderizado
+      (`flex-shrink`) sin volver a derivar el alto - dejando el panel
+      con una relación de aspecto incorrecta (verificado en navegador
+      real angosto: 395px de ancho quedaba con alto de 515px en vez de
+      los ~237px correctos, aspecto 0.64 en vez de 1.4). Corregido
+      midiendo y aplicando la primera medida sincrónicamente dentro de
+      `useLayoutEffect`, antes del primer pintado.
+    - Se mantiene un listener de `resize` en `window` además del
+      `ResizeObserver` del padre, porque el `ResizeObserver` no dispara
+      si solo cambia el alto del viewport sin que cambie el ancho
+      disponible del contenedor.
+    - `ALTURA_MINIMA_PX = 340`: piso de altura para no dejar el plano
+      ilegible en ventanas muy bajas - por debajo de este piso se
+      prioriza un pequeño scroll (aceptado explícitamente por el
+      usuario para "pantallas muy pequeñas") antes que seguir
+      encogiendo el panel.
+    - El estado de carga y el estado "sin puntos" de
+      `PlanoPuntosControl`/`Dashboard.jsx` recibieron el mismo
+      `max-height: calc(100vh - 21rem)` (ahí sí en CSS puro, sin el
+      problema circular porque no tienen un `<svg>` hijo) para
+      consistencia, aunque son estados transitorios.
+  - **Tarea 2 - Pulido tipográfico**: al medir en navegador real, el
+    panel más compacto de la ronda 3 dejaba el texto de los chips en
+    ~7px de alto en pantalla y la etiqueta "Entrada" en ~4.5px -
+    ilegible. Se subieron las proporciones (relativas a `escala.radio`,
+    no valores fijos en px - siguen escalando con el `viewBox`):
+    - Chip: fuente `0.78→0.9`, píldora `2.0→2.15` de ancho y
+      `1.15→1.3` de alto (para que quepa la fuente más grande con
+      margen). `MARGEN_CHIP` subió de `2.5` a `2.65` para cubrir el
+      nuevo alcance del chip agrandado (mismo patrón de "si cambia el
+      tamaño de un elemento, revisar su margen" ya establecido).
+    - Etiqueta "Entrada" del portal: fuente `0.5→0.62`.
+    - Resultado medido en navegador real a 1366x768: chip ~10.8px de
+      alto en pantalla (antes ~7px con el tamaño de panel de esta
+      ronda). El resto de la jerarquía visual (colores, portal en
+      acento, sombras, rosa de los vientos) se revisó y se mantuvo sin
+      cambios - ya sostenía bien con el panel más compacto.
+  - Verificación en navegador real: 1366x768 (sin scroll, confirmado
+    `scrollHeight === innerHeight`, chip legible ~10.8px), ventana más
+    baja de lo esperado (674px, ventana no maximizada - scroll de solo
+    ~38px, aceptado explícitamente por el usuario como caso límite),
+    ancho (2200x1000, sin scroll) y angosto (395px, aspecto 1.4
+    correcto tras el fix de `useLayoutEffect`) - `getBBox()` confirma
+    que nada se recorta en ningún caso, tooltip funcional, sin errores
+    de consola.
 - MEJORA PENDIENTE (no bloqueante): el pipeline ML en
   POST /api/telemetria/ingesta-archivo ejecuta el escalado
   (scaler.transform) y la inferencia (model.predict) fila por fila, en
