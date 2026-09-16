@@ -206,6 +206,54 @@ pertenece.
   - Sigue siendo responsive: se mantiene `aspect-[4/3] xl:aspect-[16/9]`
     sin cambios; todo el contenido nuevo vive dentro del mismo
     `viewBox` ya existente, así que escala igual que antes.
+- DECISIÓN (2026-09-16): estructura real del túnel decorativo
+  (`PlanoPuntosControl.jsx`, reemplaza la curva única de la entrada
+  anterior) + marca de entrada en el punto "0". Basado en la
+  descripción del usuario — **decorativo/esquemático, no topografía
+  medida**, igual que el resto del plano (ver aclaración de la
+  entrada anterior).
+  - Identificación por `nombre_estacion` (los valores reales "0" a
+    "6"), nunca por el `id` numérico de la base de datos —
+    `construirEstructuraTunel` arma un `Map` `nombre_estacion → punto`
+    y resuelve cada tramo con `.get()`, así que si algún
+    `nombre_estacion` mencionado no existe en los datos, ese tramo se
+    omite en silencio (no crashea).
+  - **Túnel principal**: `"0" → "1" → "3" → "5"`, un segmento bezier
+    cuadrática por cada par consecutivo presente.
+  - **Rama 1**: sale del punto medio de la curva del tramo `"1"-"3"`
+    (calculado de verdad sobre la bezier con `puntoEnBezier`, no la
+    recta) hasta `"2"`.
+  - **Rama 2**: sale del punto medio de la curva del tramo `"3"-"5"`
+    hasta `"6"`.
+  - **Rama 3**: sale directamente de `"5"` (extensión más allá del
+    final del túnel principal) hasta `"4"`.
+  - Jerarquía visual: túnel principal `stroke-emerald-700/40`,
+    grosor `escala.radio * 0.34`; ramas `stroke-emerald-600/20`,
+    grosor `escala.radio * 0.15` (la mitad, mucho más tenues) — las
+    ramas se pintan primero y el túnel principal encima, para que
+    lea como el eje estructural. Sigue sin usar `mg-safe-500` (ver
+    razón ya documentada: ambigüedad con el marcador "Óptimo").
+  - **Marca de entrada** en el punto `"0"`: un arco/portal decorativo
+    (`MarcaEntrada`) dibujado **detrás** del marcador circular
+    (nunca lo tapa — el semáforo de `nivel_alerta` sigue siendo el
+    elemento funcional ahí) + etiqueta de texto "Entrada" encima del
+    arco, sin chocar con la etiqueta existente del `nombre_estacion`
+    (que va debajo del círculo).
+  - Todo sigue siendo 100% calculado desde `coord_x`/`coord_y` reales
+    vía `useMemo`, cero coordenadas de túnel hardcodeadas. Se
+    mantuvieron intactos: tooltip, rosa de los vientos, fondo de
+    papel técnico, y la responsividad (`aspect-[4/3] xl:aspect-[16/9]`).
+  - **Ajuste post-verificación**: la rosa de los vientos estaba fija en
+    la esquina superior-derecha del `viewBox`, y con los datos reales
+    de la Estación Chicamocha el punto `"0"` (la entrada) cae
+    justamente ahí — la marca "Entrada" y la rosa se solapaban
+    visualmente al verificar en navegador. Se corrigió con
+    `elegirEsquinaRosa(escala, puntoEntrada)`: evalúa las 4 esquinas
+    del `viewBox` y elige la más alejada (distancia euclidiana) del
+    punto `"0"`; si no hay punto de entrada en los datos, usa la
+    esquina superior-derecha por defecto (comportamiento anterior).
+    Verificado en navegador real: sin solape, tooltip y colores
+    intactos.
 - MEJORA PENDIENTE (no bloqueante): el pipeline ML en
   POST /api/telemetria/ingesta-archivo ejecuta el escalado
   (scaler.transform) y la inferencia (model.predict) fila por fila, en

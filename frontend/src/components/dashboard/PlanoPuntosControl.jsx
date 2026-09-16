@@ -33,31 +33,89 @@ function calcularEscala(puntos) {
   }
 }
 
-// Curva unica tipo "galeria de tunel" que pasa cerca de todos los puntos
-// (ordenados por coord_x), con un offset perpendicular alternado para que
-// se vea sinuosa en vez de una polilinea recta. Puramente decorativa/
-// esquematica: NO representa geometria real medida de la mina - ver
-// docs/PROJECT_CONTEXT.md.
-function construirRutaTunel(puntos) {
-  if (puntos.length < 2) return ""
+// Estructura del tunel (decorativa/esquematica, ver docs/PROJECT_CONTEXT.md,
+// basada en la descripcion del usuario - NO es topografia medida):
+// tunel PRINCIPAL "0"->"1"->"3"->"5", mas 3 RAMAS secundarias:
+//   rama 1: desde la mitad del tramo "1"-"3" hasta "2"
+//   rama 2: desde la mitad del tramo "3"-"5" hasta "6"
+//   rama 3: desde "5" (extension mas alla del final) hasta "4"
+// Se identifica cada punto por nombre_estacion (no por el id numerico de la
+// BD). Si algun nombre_estacion no existe en los datos reales, esa parte de
+// la estructura simplemente se omite - nunca crashea.
+const SECUENCIA_PRINCIPAL = ["0", "1", "3", "5"]
 
-  const ordenados = [...puntos].sort((a, b) => a.coord_x - b.coord_x)
-  let d = `M ${ordenados[0].coord_x} ${ordenados[0].coord_y}`
+// Bezier cuadratica entre 2 puntos, con un offset perpendicular a la recta
+// que los une (proporcional a la distancia entre ellos) para que se vea
+// sinuosa en vez de una linea recta.
+function segmentoCurva(desde, hasta, lado, curvatura = 0.18) {
+  const dx = hasta.coord_x - desde.coord_x
+  const dy = hasta.coord_y - desde.coord_y
+  const longitud = Math.hypot(dx, dy) || 1
+  const offset = longitud * curvatura * lado
 
-  for (let i = 1; i < ordenados.length; i++) {
-    const anterior = ordenados[i - 1]
-    const actual = ordenados[i]
-    const dx = actual.coord_x - anterior.coord_x
-    const dy = actual.coord_y - anterior.coord_y
-    const longitud = Math.hypot(dx, dy) || 1
-    const offset = longitud * 0.18 * (i % 2 === 0 ? 1 : -1)
-    const mx = (anterior.coord_x + actual.coord_x) / 2 + (-dy / longitud) * offset
-    const my = (anterior.coord_y + actual.coord_y) / 2 + (dx / longitud) * offset
+  return {
+    x: (desde.coord_x + hasta.coord_x) / 2 + (-dy / longitud) * offset,
+    y: (desde.coord_y + hasta.coord_y) / 2 + (dx / longitud) * offset,
+  }
+}
 
-    d += ` Q ${mx} ${my} ${actual.coord_x} ${actual.coord_y}`
+// Punto sobre una bezier cuadratica en t=[0,1] - se usa para que las ramas
+// salgan de un punto real de la curva del tunel principal, no de la recta.
+function puntoEnBezier(p0, control, p2, t) {
+  const mt = 1 - t
+  return {
+    coord_x: mt * mt * p0.coord_x + 2 * mt * t * control.x + t * t * p2.coord_x,
+    coord_y: mt * mt * p0.coord_y + 2 * mt * t * control.y + t * t * p2.coord_y,
+  }
+}
+
+function pathSegmento(desde, control, hasta) {
+  return `M ${desde.coord_x} ${desde.coord_y} Q ${control.x} ${control.y} ${hasta.coord_x} ${hasta.coord_y}`
+}
+
+function construirEstructuraTunel(puntos) {
+  const porNombre = new Map(puntos.map((p) => [p.nombre_estacion, p]))
+  const buscar = (nombre) => porNombre.get(nombre) ?? null
+
+  const segmentosPrincipales = new Map() // "0-1" -> { desde, control, hasta }
+  const principales = []
+
+  for (let i = 1; i < SECUENCIA_PRINCIPAL.length; i++) {
+    const nombreDesde = SECUENCIA_PRINCIPAL[i - 1]
+    const nombreHasta = SECUENCIA_PRINCIPAL[i]
+    const desde = buscar(nombreDesde)
+    const hasta = buscar(nombreHasta)
+    if (!desde || !hasta) continue
+
+    const control = segmentoCurva(desde, hasta, i % 2 === 0 ? 1 : -1)
+    const clave = `${nombreDesde}-${nombreHasta}`
+    segmentosPrincipales.set(clave, { desde, control, hasta })
+    principales.push({ key: clave, d: pathSegmento(desde, control, hasta) })
   }
 
-  return d
+  const ramas = []
+
+  function agregarRamaDesdeSegmento(claveSegmento, nombreDestino) {
+    const segmento = segmentosPrincipales.get(claveSegmento)
+    const destino = buscar(nombreDestino)
+    if (!segmento || !destino) return
+
+    const origen = puntoEnBezier(segmento.desde, segmento.control, segmento.hasta, 0.5)
+    const control = segmentoCurva(origen, destino, 1, 0.22)
+    ramas.push({ key: `${claveSegmento}->${nombreDestino}`, d: pathSegmento(origen, control, destino) })
+  }
+
+  agregarRamaDesdeSegmento("1-3", "2")
+  agregarRamaDesdeSegmento("3-5", "6")
+
+  const nodo5 = buscar("5")
+  const nodo4 = buscar("4")
+  if (nodo5 && nodo4) {
+    const control = segmentoCurva(nodo5, nodo4, 1, 0.22)
+    ramas.push({ key: "5->4", d: pathSegmento(nodo5, control, nodo4) })
+  }
+
+  return { principales, ramas }
 }
 
 function formatearFecha(iso) {
@@ -108,13 +166,34 @@ function TooltipContenido({ punto }) {
   )
 }
 
+// Elige, de las 4 esquinas del viewBox, la mas alejada del punto de entrada
+// (si existe) para la rosa de los vientos - evita que choque visualmente
+// con la marca "Entrada" cuando el punto "0" cae cerca de una esquina en
+// los datos reales (ocurrio en pruebas: el punto "0" quedo justo en la
+// esquina superior-derecha, la posicion fija por defecto de la rosa).
+function elegirEsquinaRosa(escala, puntoEntrada) {
+  const margen = escala.lado * 0.12
+  const esquinas = [
+    { x: escala.minX + margen, y: escala.minY + margen },
+    { x: escala.minX + escala.lado - margen, y: escala.minY + margen },
+    { x: escala.minX + margen, y: escala.minY + escala.lado - margen },
+    { x: escala.minX + escala.lado - margen, y: escala.minY + escala.lado - margen },
+  ]
+
+  if (!puntoEntrada) return esquinas[1] // superior derecha por defecto
+
+  return esquinas.reduce((mejor, esquina) => {
+    const distancia = Math.hypot(esquina.x - puntoEntrada.coord_x, esquina.y - puntoEntrada.coord_y)
+    const distanciaMejor = Math.hypot(mejor.x - puntoEntrada.coord_x, mejor.y - puntoEntrada.coord_y)
+    return distancia > distanciaMejor ? esquina : mejor
+  })
+}
+
 // Rosa de los vientos decorativa (estilo plano tecnico de ingenieria),
 // tamaño proporcional al viewBox para que se vea igual sin importar cuanto
 // se extiendan los puntos. Usa los colores de marca (navy/accent).
-function RosaDeLosVientos({ escala }) {
+function RosaDeLosVientos({ escala, cx, cy }) {
   const radio = escala.lado * 0.05
-  const cx = escala.minX + escala.lado - radio * 2.4
-  const cy = escala.minY + radio * 2.4
 
   return (
     <g className="pointer-events-none select-none" aria-hidden="true">
@@ -173,13 +252,51 @@ function RosaDeLosVientos({ escala }) {
   )
 }
 
+// Marca decorativa de "entrada de la mina" en el punto nombre_estacion "0":
+// un arco/portal detras del marcador (nunca lo tapa - el semaforo de nivel
+// de alerta sigue siendo el elemento funcional) + una etiqueta "Entrada".
+// Esquematica, no geometria real medida - ver docs/PROJECT_CONTEXT.md.
+function MarcaEntrada({ punto, radio }) {
+  const cx = punto.coord_x
+  const cy = punto.coord_y
+  const ancho = radio * 3.2
+  const alto = radio * 2.6
+
+  return (
+    <g className="pointer-events-none select-none" aria-hidden="true">
+      <path
+        d={`M ${cx - ancho / 2} ${cy + alto * 0.15}
+            L ${cx - ancho / 2} ${cy - alto * 0.1}
+            Q ${cx - ancho / 2} ${cy - alto} ${cx} ${cy - alto}
+            Q ${cx + ancho / 2} ${cy - alto} ${cx + ancho / 2} ${cy - alto * 0.1}
+            L ${cx + ancho / 2} ${cy + alto * 0.15}`}
+        fill="none"
+        className="stroke-mg-navy-800/45"
+        strokeWidth={radio * 0.16}
+        strokeLinecap="round"
+      />
+      <text
+        x={cx}
+        y={cy - alto - radio * 0.45}
+        textAnchor="middle"
+        className="fill-mg-navy-800 font-semibold"
+        style={{ fontSize: radio * 0.6 }}
+      >
+        Entrada
+      </text>
+    </g>
+  )
+}
+
 function PlanoPuntosControl({ puntos }) {
   const contenedorRef = useRef(null)
   const [activo, setActivo] = useState(null)
   const idGrid = useId()
 
   const escala = useMemo(() => calcularEscala(puntos), [puntos])
-  const rutaTunel = useMemo(() => construirRutaTunel(puntos), [puntos])
+  const estructuraTunel = useMemo(() => construirEstructuraTunel(puntos), [puntos])
+  const puntoEntrada = useMemo(() => puntos.find((p) => p.nombre_estacion === "0") ?? null, [puntos])
+  const esquinaRosa = useMemo(() => elegirEsquinaRosa(escala, puntoEntrada), [escala, puntoEntrada])
   const pasoGrid = escala.lado / 20
 
   const posicionRelativa = (evento) => {
@@ -257,18 +374,32 @@ function PlanoPuntosControl({ puntos }) {
           fill={`url(#${idGrid})`}
         />
 
-        {/* Tunel decorativo/esquematico - no es geometria real medida. */}
-        {rutaTunel && (
+        {/* Tunel decorativo/esquematico - no es geometria real medida.
+            Ramas primero (mas delgadas/tenues), tunel principal encima
+            (mas grueso/opaco) para que se lea como el eje estructural. */}
+        {estructuraTunel.ramas.map((rama) => (
           <path
-            d={rutaTunel}
+            key={rama.key}
+            d={rama.d}
             fill="none"
-            className="stroke-emerald-700/30"
-            strokeWidth={escala.radio * 0.3}
+            className="stroke-emerald-600/20"
+            strokeWidth={escala.radio * 0.15}
             strokeLinecap="round"
           />
-        )}
+        ))}
+        {estructuraTunel.principales.map((tramo) => (
+          <path
+            key={tramo.key}
+            d={tramo.d}
+            fill="none"
+            className="stroke-emerald-700/40"
+            strokeWidth={escala.radio * 0.34}
+            strokeLinecap="round"
+          />
+        ))}
 
-        <RosaDeLosVientos escala={escala} />
+        <RosaDeLosVientos escala={escala} cx={esquinaRosa.x} cy={esquinaRosa.y} />
+        {puntoEntrada && <MarcaEntrada punto={puntoEntrada} radio={escala.radio} />}
 
         {puntos.map((punto) => {
           const estilo = punto.ultima_lectura
