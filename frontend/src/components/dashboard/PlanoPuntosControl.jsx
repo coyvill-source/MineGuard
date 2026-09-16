@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useId, useMemo, useRef, useState } from "react"
 
 const PADDING_RATIO = 0.22
 const RADIO_RATIO = 0.032
@@ -31,6 +31,33 @@ function calcularEscala(puntos) {
     lado: mitad * 2,
     radio: mitad * 2 * RADIO_RATIO,
   }
+}
+
+// Curva unica tipo "galeria de tunel" que pasa cerca de todos los puntos
+// (ordenados por coord_x), con un offset perpendicular alternado para que
+// se vea sinuosa en vez de una polilinea recta. Puramente decorativa/
+// esquematica: NO representa geometria real medida de la mina - ver
+// docs/PROJECT_CONTEXT.md.
+function construirRutaTunel(puntos) {
+  if (puntos.length < 2) return ""
+
+  const ordenados = [...puntos].sort((a, b) => a.coord_x - b.coord_x)
+  let d = `M ${ordenados[0].coord_x} ${ordenados[0].coord_y}`
+
+  for (let i = 1; i < ordenados.length; i++) {
+    const anterior = ordenados[i - 1]
+    const actual = ordenados[i]
+    const dx = actual.coord_x - anterior.coord_x
+    const dy = actual.coord_y - anterior.coord_y
+    const longitud = Math.hypot(dx, dy) || 1
+    const offset = longitud * 0.18 * (i % 2 === 0 ? 1 : -1)
+    const mx = (anterior.coord_x + actual.coord_x) / 2 + (-dy / longitud) * offset
+    const my = (anterior.coord_y + actual.coord_y) / 2 + (dx / longitud) * offset
+
+    d += ` Q ${mx} ${my} ${actual.coord_x} ${actual.coord_y}`
+  }
+
+  return d
 }
 
 function formatearFecha(iso) {
@@ -81,11 +108,79 @@ function TooltipContenido({ punto }) {
   )
 }
 
+// Rosa de los vientos decorativa (estilo plano tecnico de ingenieria),
+// tamaño proporcional al viewBox para que se vea igual sin importar cuanto
+// se extiendan los puntos. Usa los colores de marca (navy/accent).
+function RosaDeLosVientos({ escala }) {
+  const radio = escala.lado * 0.05
+  const cx = escala.minX + escala.lado - radio * 2.4
+  const cy = escala.minY + radio * 2.4
+
+  return (
+    <g className="pointer-events-none select-none" aria-hidden="true">
+      <circle
+        cx={cx}
+        cy={cy}
+        r={radio}
+        className="fill-white/70 stroke-mg-navy-800/30"
+        strokeWidth={radio * 0.05}
+      />
+      <path
+        d={`M ${cx} ${cy - radio * 0.85} L ${cx + radio * 0.2} ${cy} L ${cx} ${cy + radio * 0.85} L ${cx - radio * 0.2} ${cy} Z`}
+        className="fill-mg-navy-800/70"
+      />
+      <path
+        d={`M ${cx - radio * 0.85} ${cy} L ${cx} ${cy - radio * 0.2} L ${cx + radio * 0.85} ${cy} L ${cx} ${cy + radio * 0.2} Z`}
+        className="fill-mg-accent-500/70"
+      />
+      <text
+        x={cx}
+        y={cy - radio * 1.15}
+        textAnchor="middle"
+        className="fill-mg-navy-800 font-bold"
+        style={{ fontSize: radio * 0.5 }}
+      >
+        N
+      </text>
+      <text
+        x={cx}
+        y={cy + radio * 1.35}
+        textAnchor="middle"
+        className="fill-mg-navy-800"
+        style={{ fontSize: radio * 0.42 }}
+      >
+        S
+      </text>
+      <text
+        x={cx + radio * 1.3}
+        y={cy + radio * 0.16}
+        textAnchor="middle"
+        className="fill-mg-navy-800"
+        style={{ fontSize: radio * 0.42 }}
+      >
+        E
+      </text>
+      <text
+        x={cx - radio * 1.3}
+        y={cy + radio * 0.16}
+        textAnchor="middle"
+        className="fill-mg-navy-800"
+        style={{ fontSize: radio * 0.42 }}
+      >
+        O
+      </text>
+    </g>
+  )
+}
+
 function PlanoPuntosControl({ puntos }) {
   const contenedorRef = useRef(null)
   const [activo, setActivo] = useState(null)
+  const idGrid = useId()
 
   const escala = useMemo(() => calcularEscala(puntos), [puntos])
+  const rutaTunel = useMemo(() => construirRutaTunel(puntos), [puntos])
+  const pasoGrid = escala.lado / 20
 
   const posicionRelativa = (evento) => {
     const contenedorRect = contenedorRef.current.getBoundingClientRect()
@@ -141,6 +236,40 @@ function PlanoPuntosControl({ puntos }) {
         role="img"
         aria-label="Plano de puntos de control de la estación"
       >
+        <defs>
+          <pattern id={idGrid} width={pasoGrid} height={pasoGrid} patternUnits="userSpaceOnUse">
+            <path
+              d={`M ${pasoGrid} 0 L 0 0 0 ${pasoGrid}`}
+              fill="none"
+              className="stroke-mg-navy-900/5"
+              strokeWidth={escala.lado * 0.0015}
+            />
+          </pattern>
+        </defs>
+
+        {/* Fondo "papel tecnico": base clara + grid fino, decorativo. */}
+        <rect x={escala.minX} y={escala.minY} width={escala.lado} height={escala.lado} className="fill-mg-surface-50" />
+        <rect
+          x={escala.minX}
+          y={escala.minY}
+          width={escala.lado}
+          height={escala.lado}
+          fill={`url(#${idGrid})`}
+        />
+
+        {/* Tunel decorativo/esquematico - no es geometria real medida. */}
+        {rutaTunel && (
+          <path
+            d={rutaTunel}
+            fill="none"
+            className="stroke-emerald-700/30"
+            strokeWidth={escala.radio * 0.3}
+            strokeLinecap="round"
+          />
+        )}
+
+        <RosaDeLosVientos escala={escala} />
+
         {puntos.map((punto) => {
           const estilo = punto.ultima_lectura
             ? (ESTILO_POR_NIVEL[punto.ultima_lectura.nivel_alerta] ?? ESTILO_SIN_DATOS)

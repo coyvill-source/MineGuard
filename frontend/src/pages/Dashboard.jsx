@@ -11,7 +11,7 @@ const LEYENDA = [
   { color: "bg-slate-400", etiqueta: "Sin datos" },
 ]
 
-function AvisoCalibracionPendiente() {
+function AvisoModeloTemporal() {
   return (
     <div className="flex items-start gap-3 rounded-xl border border-mg-accent-300 bg-mg-accent-300/10 px-4 py-3.5 text-sm text-mg-navy-800">
       <svg
@@ -27,11 +27,12 @@ function AvisoCalibracionPendiente() {
         />
       </svg>
       <p>
-        El sistema de clasificación de niveles de alerta está <strong>pendiente de calibración</strong> con
-        datos reales de campo. Por ahora, todos los puntos con lecturas muestran el nivel{" "}
-        <strong>"Óptimo"</strong> como valor de referencia — esto{" "}
-        <strong>no significa que la mina esté verificada como segura</strong>, es un valor por defecto sin
-        lógica de clasificación real todavía.
+        Los niveles de alerta (óptimo/alerta/crítico) ya se calculan con los umbrales reales del{" "}
+        <strong>Decreto 1886</strong>, convirtiendo la lectura de gas de ppm a % de metano. El{" "}
+        <strong>StandardScaler</strong> que usa el modelo de predicción sigue siendo una{" "}
+        <strong>aproximación temporal</strong> derivada localmente (no el scaler original de
+        entrenamiento), así que la corrección del modelo — y por lo tanto la clasificación que depende
+        de ella — puede no ser perfectamente precisa todavía.
       </p>
     </div>
   )
@@ -57,7 +58,7 @@ function Dashboard() {
   return (
     <DashboardLayout titulo="Plano de puntos de control">
       <div className="mt-4">
-        <AvisoCalibracionPendiente />
+        <AvisoModeloTemporal />
       </div>
 
       {isLoading ? (

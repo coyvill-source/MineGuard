@@ -134,8 +134,78 @@ pertenece.
     señalado aquí para que la corrijas o confirmes si quieres que la
     actualice en una futura tarea.
   - Frontend: el banner del Dashboard ("pendiente de calibración")
-    sigue sin actualizar — es una tarea aparte, explícitamente fuera
-    de alcance de esta.
+    se actualizó en una tarea aparte — ver la entrada de 2026-09-16
+    más abajo.
+- DECISIÓN (2026-09-16): banner del Dashboard actualizado para
+  reflejar que el motor de umbrales ya es real (`Dashboard.jsx`,
+  componente renombrado de `AvisoCalibracionPendiente` a
+  `AvisoModeloTemporal`). Ya no dice "pendiente de calibración" ni
+  "todos los puntos muestran Óptimo como placeholder" — ambas
+  afirmaciones dejaron de ser ciertas con la DECISIÓN de 2026-09-15.
+  El nuevo texto explica que la clasificación óptimo/alerta/crítico
+  ya usa los umbrales reales del Decreto 1886 (ppm → % de metano),
+  pero mantiene un aviso sobre algo que SÍ sigue siendo cierto: el
+  `StandardScaler` sigue siendo la aproximación temporal derivada
+  localmente (ver DECISIÓN 2026-09-12 sobre el scaler, más arriba),
+  así que la corrección del modelo — y por extensión la
+  clasificación, que depende de `gas_corregido` — puede no ser
+  perfectamente precisa todavía. La leyenda del semáforo
+  (`LeyendaSemaforo`) no necesitó cambios: sus etiquetas
+  (Óptimo/Alerta/Crítico/Sin datos) ya eran neutras y no afirmaban
+  nada falso.
+  Verificado en navegador real contra `mineguard_db` (no se usaron
+  datos de prueba): el plano del Dashboard ya muestra colores
+  variados de verdad (no todo verde) en los puntos con lecturas,
+  consistente con la distribución real de niveles ya reclasificados
+  (ver conteos en la DECISIÓN de 2026-09-15).
+- DECISIÓN (2026-09-16): rediseño visual de
+  `frontend/src/components/dashboard/PlanoPuntosControl.jsx` — de
+  scatter plot esquemático plano a un estilo "plano técnico de mina"
+  (inspirado en una imagen de referencia que compartió el usuario,
+  sin usarla como fondo literal — no hay correspondencia de
+  coordenadas confirmada con ningún plano real). Toda la lógica
+  existente quedó intacta (cálculo de `viewBox` según
+  `coord_x`/`coord_y` reales, marcadores por `nivel_alerta`, tooltip
+  por hover/click/teclado); solo se agregaron capas decorativas
+  **debajo** de los marcadores, que siguen siendo el elemento más
+  prominente:
+  - Fondo "papel técnico": un `<rect>` base en `mg-surface-50` +
+    un `<pattern>` de grid fino (`stroke-mg-navy-900/5`, casi
+    invisible) cuyo paso se recalcula como `escala.lado / 20`, así
+    que la densidad visual de la cuadrícula es consistente sin
+    importar cuánto se extiendan los puntos reales.
+  - Una única curva tipo "galería de túnel" (`construirRutaTunel`),
+    generada con `Q` (bezier cuadrática) pasando por todos los puntos
+    ordenados por `coord_x`, con un offset perpendicular alternado
+    por segmento para que se vea sinuosa en vez de una polilinea
+    recta. Se recalcula con `useMemo` a partir de `puntos` — no hay
+    coordenadas de túnel hardcodeadas.
+  - Rosa de los vientos (N/S/E/O) en la esquina superior derecha del
+    `viewBox`, tamaño proporcional a `escala.lado` (no un tamaño en
+    píxeles fijo), en `mg-navy-800`/`mg-accent-500` (colores de
+    marca).
+  - DECISIÓN DE DISEÑO explícita: el túnel decorativo usa
+    `emerald-700` (verde de Tailwind por defecto), **no**
+    `mg-safe-500` — ese verde ya es el color semántico de "nivel
+    Óptimo" en los marcadores; usar el mismo tono para una línea de
+    fondo habría creado ambigüedad visual entre "marcador en estado
+    óptimo" y "decoración de túnel". Por la misma razón no se usó
+    rojo para ningún elemento decorativo (la imagen de referencia
+    tenía flechas de inclinación en rojo) — el rojo ya es
+    `mg-danger-500` = nivel Crítico en este mismo plano. Tampoco se
+    agregaron las cotas de elevación "Z=" en azul de la imagen de
+    referencia ni las flechas de ángulo: no estaban en la lista
+    explícita de elementos a construir de la tarea, y sumar más
+    anotaciones de texto arriesgaba competir visualmente con los
+    marcadores reales.
+  - **ACLARACIÓN IMPORTANTE**: el túnel y la rosa de los vientos son
+    100% decorativos/esquemáticos — no representan geometría real
+    medida de la mina (no hay topografía de túneles capturada en el
+    sistema todavía). No debe interpretarse como un plano topográfico
+    certificado.
+  - Sigue siendo responsive: se mantiene `aspect-[4/3] xl:aspect-[16/9]`
+    sin cambios; todo el contenido nuevo vive dentro del mismo
+    `viewBox` ya existente, así que escala igual que antes.
 - MEJORA PENDIENTE (no bloqueante): el pipeline ML en
   POST /api/telemetria/ingesta-archivo ejecuta el escalado
   (scaler.transform) y la inferencia (model.predict) fila por fila, en
