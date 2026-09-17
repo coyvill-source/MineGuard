@@ -59,8 +59,13 @@ lectura del sensor de gas.
 ## Ingesta de datos (3 modos intercambiables)
 1. **Archivo** (Excel/CSV): columnas Temp, Humed, Ch4, Bateria,
    hora_insertion.
-2. **Aleatorio**: generador sintético con rangos configurables.
-3. **Tiempo real** (futuro, aún no hay despliegue físico en mina).
+2. **Aleatorio bajo demanda**: generador sintético con rangos
+   configurables, un lote fijo por request.
+3. **Aleatorio continuo** (simula "tiempo real" mientras no haya
+   despliegue físico en mina): mismo generador sintético, pero corre en
+   segundo plano a un intervalo configurable, generando una lectura por
+   punto de control activo en cada tick, hasta que un admin lo detiene
+   — ver DECISIÓN 2026-09-18 más abajo.
 
 Toda lectura, sin importar el modo, debe declarar a qué PuntoControl
 pertenece.
@@ -1313,6 +1318,80 @@ duplicaciones y corrupción de contenido en el pasado.
   lecturas consecutivas son ambas 12s). `nivel_alerta` se mantiene como
   placeholder `'optimo'`, igual que en `ingesta-archivo` — sigue
   bloqueado por la falta de conversión de unidades del gas (ver arriba).
+  - **NOTA (2026-09-18)**: la frase anterior sobre `nivel_alerta` como
+    placeholder quedó desactualizada por una tarea posterior — el motor
+    de umbrales reales (Decreto 1886) ya está activo desde el
+    2026-09-1x (ver el aviso vigente en el Dashboard del frontend); se
+    señala aquí en vez de corregir la entrada original, según la regla
+    6 de `CLAUDE.md` (no editar retroactivamente sin marcar el punto).
+- DECISIÓN (2026-09-18): tercer modo de ingesta — **generador continuo**
+  (el "tiempo real" sintético mencionado como fase aparte arriba), 3
+  endpoints nuevos en `app/api/telemetria.py`, todos bajo el prefijo ya
+  existente `/api/telemetria`:
+  - `POST /generador-continuo/iniciar` (rol mínimo admin, dependencia
+    `requiere_rol(RolUsuario.ADMIN)` ya existente). Body
+    `{"intervalo_segundos": int}` validado por Pydantic con `ge=5`
+    (pedido explícito, evita saturar la BD) y `le=3600` (tope de
+    sensatez propio, un intervalo mayor a 1h no tiene sentido como modo
+    "continuo"). Si ya hay una tarea corriendo: 409 con mensaje
+    explícito indicando que hay que detenerla primero — nunca permite
+    dos tareas concurrentes.
+  - `POST /generador-continuo/detener` (rol mínimo admin). Si no hay
+    ninguna tarea corriendo: 409 explícito (nunca un 500 genérico).
+    Cancela la tarea (`asyncio.Task.cancel()` + `await` capturando
+    `CancelledError`) antes de responder, así que al recibir la
+    confirmación ya no va a insertar una lectura más.
+  - `GET /generador-continuo/estado` (rol mínimo trabajador — cualquiera
+    puede consultar, solo admin puede cambiar el estado). Devuelve
+    `{"corriendo": bool, "intervalo_segundos": int|null, "iniciado_en": datetime|null}`.
+  - **Diseño técnico** (investigado con context7 la documentación
+    vigente de FastAPI antes de implementar): `BackgroundTasks` de
+    FastAPI se descartó a propósito — está pensado para una tarea que
+    corre UNA VEZ después de responder la request (ej. mandar un
+    correo), no para un bucle controlable que sigue vivo entre
+    requests y se puede arrancar/detener desde endpoints distintos. Se
+    usó `asyncio.create_task(...)` en su lugar, con una referencia al
+    `Task` guardada en una variable de módulo
+    (`_generador_continuo_task`, mismo patrón ya usado por
+    `_modelo_activo_cache` para el cache del modelo ML), protegida por
+    un `asyncio.Lock` propio para que dos llamadas a `/iniciar` casi
+    simultáneas nunca creen dos tareas.
+  - **Reutiliza el pipeline ML compartido sin duplicar lógica**: la
+    función nueva `_generar_lote_para_puntos_activos()` llama a
+    `_obtener_modelo_activo` y `_predecir_correccion` — las MISMAS
+    funciones que ya usan `ingesta-archivo` e `ingesta-aleatoria` — y
+    los mismos rangos de generación sintética (`RANGO_TEMPERATURA`,
+    etc.) ya documentados arriba. Cada tick genera UNA lectura por cada
+    `PuntoControl` con `activo=True` (`estacion_id`/`activo` ya
+    existían en el modelo), todas con el mismo `timestamp` (el momento
+    de esa pasada) — se interpretó "en paralelo" del diseño aprobado
+    como "todos los puntos en la misma pasada/tick", no como
+    concurrencia real a nivel de `asyncio.gather` con sesiones de BD
+    separadas por punto: una sola `AsyncSession` de SQLAlchemy no es
+    segura para usarse concurrentemente, y con ~7 puntos de control
+    reales el costo de generarlos secuencialmente dentro de una misma
+    pasada es insignificante frente al intervalo (mínimo 5s). Se abre
+    una `AsyncSessionLocal()` nueva en cada tick (no una sesión de
+    request vía `Depends(get_db)`, porque la tarea corre fuera de
+    cualquier request).
+  - **LIMITACIÓN DE DESARROLLO, aceptada y documentada explícitamente
+    (pedido directo de la tarea)**: el estado del generador (la tarea
+    de `asyncio` y las variables de módulo) vive en memoria del
+    proceso de `uvicorn`. Con `--reload` activo (como se corre hoy en
+    desarrollo), CUALQUIER cambio de código reinicia el proceso y la
+    tarea en segundo plano se pierde silenciosamente — sin error
+    visible, el generador simplemente deja de insertar lecturas hasta
+    que alguien vuelva a llamar `/iniciar`. **Pendiente para la fase de
+    despliegue a producción** (sin `--reload`, proceso estable): en ese
+    momento sí conviene además registrar un hook de `lifespan` en
+    `main.py` que cancele la tarea de forma limpia en un shutdown real
+    del proceso (hoy no se agregó — un shutdown/kill del proceso mata
+    la tarea igualmente, solo que sin la limpieza ordenada de un
+    `cancel()` esperado).
+  - Verificación real (navegador/curl + consulta directa a la BD, con
+    limpieza de datos de prueba verificada por conteo total): ver
+    comandos `curl` exactos entregados al usuario en la respuesta de
+    esta tarea.
 - DECISIÓN (2026-09-13): CRUD completo de puntos de control con flujo
   de aprobación, implementado en `backend/app/api/puntos_control.py`
   (prefijo `/api/puntos-control`) + modelo nuevo

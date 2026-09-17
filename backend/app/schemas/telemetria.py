@@ -21,6 +21,19 @@ class IngestaAleatoriaRespuesta(BaseModel):
     punto_control_id: int
 
 
+class GeneradorContinuoIniciarSolicitud(BaseModel):
+    # Minimo 5s (pedido explicito, para no saturar la BD); maximo 1h como
+    # tope de sensatez (un intervalo mas largo no tiene sentido como modo
+    # "continuo" y probablemente es un error de captura).
+    intervalo_segundos: int = Field(ge=5, le=3600)
+
+
+class GeneradorContinuoRespuesta(BaseModel):
+    corriendo: bool
+    intervalo_segundos: int | None = None
+    iniciado_en: datetime | None = None
+
+
 class TelemetriaResumen(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
