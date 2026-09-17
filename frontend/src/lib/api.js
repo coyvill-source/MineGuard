@@ -60,6 +60,34 @@ export function register({ email, password, nombre, apellidos, telefono, tipoDoc
   })
 }
 
+export function exchangeCodigo(codigo) {
+  return request("/api/auth/exchange", {
+    method: "POST",
+    body: JSON.stringify({ codigo }),
+  })
+}
+
+export function completarRegistroGoogle({
+  registroToken,
+  nombre,
+  apellidos,
+  telefono,
+  tipoDocumento,
+  numeroDocumento,
+}) {
+  return request("/api/auth/google/completar-registro", {
+    method: "POST",
+    body: JSON.stringify({
+      registro_token: registroToken,
+      nombre,
+      apellidos,
+      telefono,
+      tipo_documento: tipoDocumento,
+      numero_documento: numeroDocumento,
+    }),
+  })
+}
+
 export function me(token) {
   return request("/api/auth/me", {
     headers: { Authorization: `Bearer ${token}` },

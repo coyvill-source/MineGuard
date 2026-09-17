@@ -1090,18 +1090,150 @@ El JWT emitido es el mismo sin importar el método de login usado.
     límite con el uso. Aceptable mientras el volumen de logins por
     Google sea bajo (fase de desarrollo); pendiente para una fase de
     endurecimiento (ej. un `DELETE` periódico de códigos expirados).
-  - Pendiente (siguiente tarea, explícitamente fuera de esta): el
-    frontend — botón "Iniciar sesión con Google" que redirige a
-    `GET /api/auth/google/login`; una página que reciba `?code=` en
-    `/dashboard`, llame a `POST /api/auth/exchange`, y si
-    `resultado === "login"` guarde el `access_token` en memoria (igual
-    que ya hace `AuthContext` con el login normal) y limpie el `code`
-    de la URL con `history.replaceState`; la nueva ruta
-    `/completar-registro-google` que reciba `?code=`, llame también a
-    `/exchange` (`resultado === "registro_pendiente"`), muestre un
-    formulario prellenado con `email`/`nombre` para pedir
-    apellidos/teléfono/tipo y número de documento, y al enviarlo llame
-    a `POST /api/auth/google/completar-registro`.
+  - **Frontend implementado (2026-09-18)**, cerrando el pendiente de
+    arriba:
+    - `Login.jsx`: botón "Iniciar sesión con Google" (ícono oficial en
+      SVG inline, separador "o continúa con") que navega con
+      `window.location.href` (no una ruta de React Router — es
+      cross-origin, sale del SPA) a
+      `` `${API_BASE_URL}/api/auth/google/login` `` — usa la constante
+      ya existente de `config.js`, nunca hardcodeada por componente.
+      `Login.jsx` también ahora inicializa su caja de error existente
+      desde `location.state?.errorMessage` (antes solo leía
+      `successMessage`), reutilizada por el punto siguiente.
+    - `App.jsx`: nuevo componente `ConCodigoGoogle` que envuelve la
+      ruta `/dashboard`. Si la URL trae `?code=`, lo canjea en
+      `POST /api/auth/exchange` (nueva función `exchangeCodigo` en
+      `lib/api.js`); si `resultado === "login"`, guarda el
+      `access_token` en `AuthContext` y hace
+      `navigate("/dashboard", {replace:true})` (limpia el `?code=` de
+      la URL sin agregar una entrada nueva al historial); si el
+      intercambio falla (código inválido/usado/expirado, o una forma
+      de respuesta inesperada), redirige a `/login` con
+      `state: {errorMessage: "..."}`. Sin `?code=` en la URL (navegación
+      normal a `/dashboard`), el wrapper no hace nada — `Dashboard`
+      sigue funcionando exactamente igual que antes.
+    - Página nueva `pages/CompletarRegistroGoogle.jsx`
+      (`/completar-registro-google`, mismo estilo que `Registro.jsx`):
+      al montar, canjea el `?code=` de la URL; sin `code` o si el
+      canje falla, muestra una tarjeta de "Enlace inválido" con link a
+      `/login` (nunca deja la pantalla en blanco). Si
+      `resultado === "registro_pendiente"`, muestra un formulario con
+      el email de Google en un campo deshabilitado (de solo lectura —
+      el backend tampoco lo acepta del cliente, lo toma del
+      `registro_token`) y el nombre prellenado pero editable, más
+      apellidos/teléfono/tipo y número de documento (mismos campos y
+      estilos que `Registro.jsx`). Al enviarlo, llama a
+      `POST /api/auth/google/completar-registro` (nueva función
+      `completarRegistroGoogle` en `lib/api.js`), guarda el
+      `access_token` resultante en `AuthContext` y navega a
+      `/dashboard`.
+    - **Verificado end-to-end en navegador real** (no solo visualmente):
+      el botón de Google disparó el flujo real completo dos veces en
+      esta tarea — como la pestaña ya tenía sesión de Google activa,
+      Google redirigió directo de vuelta sin pantalla de consentimiento
+      manual. La primera vez confirmó que sin la ruta nueva la pantalla
+      quedaba en blanco (el bug que esta tarea resolvía); tras
+      implementar `CompletarRegistroGoogle.jsx`, la segunda vez mostró
+      el formulario prellenado con el `email` y `nombre` REALES de la
+      cuenta de Google usada, se completó con datos de prueba, y el
+      envío creó el `Usuario` real, devolvió un JWT funcional y navegó
+      a `/dashboard` ya autenticado (header mostrando el nombre y rol
+      "Trabajador", plano de puntos de control cargado con datos
+      reales). Sin errores de consola. El `Usuario` de prueba creado
+      (con el email real de Google pero apellidos/documento
+      claramente de prueba) se eliminó después — verificado por
+      conteo total (5→4) — para que un login real de esa cuenta no
+      quede con datos ficticios de perfil.
+    - No se pudo probar con una cuenta de Google que NO tuviera sesión
+      activa en el navegador (mostraría la pantalla de consentimiento
+      real de Google, que requiere interacción manual humana) — ese
+      paso puntual (la pantalla de consentimiento en sí) queda como
+      verificación manual, igual que ya se hizo en la tarea del
+      backend.
+- BUG Y FIX (2026-09-18): el usuario reportó que, con una cuenta de
+  Google nueva real, `/completar-registro-google` mostraba "enlace
+  inválido/expirado" en el PRIMER intento tras volver de Google, pero
+  un segundo intento completo (nuevo login de Google desde cero) sí
+  funcionaba. **Causa raíz confirmada con evidencia real** (no
+  asumida): se insertó un `OAuthExchangeCode` de prueba directamente
+  en la BD (`tipo=REGISTRO_PENDIENTE`, `usado=false`) y se navegó a la
+  URL real en el navegador con la pestaña Network abierta.
+  - Con el código ANTES del fix: **2 peticiones POST reales** a
+    `/api/auth/exchange` para una sola carga de página, ambas
+    `200 OK` (evidencia: `read_network_requests` del navegador) — el
+    código quedaba `usado=true` en la BD tras la primera, pero la
+    segunda petición TAMBIÉN tuvo éxito y generó un segundo
+    `registro_token` distinto, porque el endpoint hacía un
+    SELECT (leer `usado`) y despues un UPDATE (escribir `usado=True`)
+    como dos pasos separados — dos requests casi simultáneas podían
+    leer `usado=False` ambas ANTES de que cualquiera confirmara su
+    escritura (race condition / TOCTOU clásico). Con timings distintos
+    (como probablemente le pasó al usuario) el resultado no es
+    determinístico: a veces ambas tienen éxito, a veces la primera
+    "gana" y la segunda (la que el usuario realmente ve en pantalla)
+    llega tarde y encuentra el código ya usado → error.
+  - **Por qué salían 2 peticiones reales**: `App.jsx` (`main.jsx`)
+    tiene `<StrictMode>` activo (intencional, de React). En
+    desarrollo, StrictMode invoca cada `useEffect` DOS veces (monta →
+    limpia → monta de nuevo) para detectar efectos sin limpieza
+    correcta. Tanto `CompletarRegistroGoogle.jsx` como el wrapper
+    `ConCodigoGoogle` en `App.jsx` disparaban `exchangeCodigo(...)`
+    directamente en el cuerpo del efecto, con solo una bandera local
+    `cancelado` para IGNORAR el resultado de la invocación fantasma -
+    pero esa bandera no cancela el `fetch` real, que ya sale hacia el
+    backend y ya consume el código de un solo uso antes de que la
+    invocación "real" pueda usarlo.
+  - **Fix aplicado en DOS capas** (una sola no bastaba):
+    1. **Backend** (`app/api/auth_google.py`,
+       `POST /api/auth/exchange`): el SELECT+UPDATE separado se
+       reemplazó por un único `UPDATE ... WHERE codigo=:codigo AND
+       usado=false AND fecha_expiracion >= now() RETURNING *`. Postgres
+       serializa las escrituras concurrentes sobre la misma fila: solo
+       UNA puede encontrar `usado=false` y actualizarla; la otra ya no
+       hace match (0 filas) y recibe el 400 de "código inválido". Esto
+       hace que "de un solo uso" sea una garantía real a nivel de base
+       de datos, sin importar la causa de la doble petición (StrictMode,
+       doble-click, retry de red, o un intento malicioso de reuso) - es
+       la corrección de fondo.
+    2. **Frontend** (`CompletarRegistroGoogle.jsx` y `App.jsx`): se
+       reemplazó la bandera `cancelado` por un guard `useRef` que
+       recuerda qué `codigo` ya disparó la petición real
+       (`codigoYaCanjeadoRef.current === codigo`), evitando que la
+       segunda invocación de StrictMode dispare un segundo `fetch` -
+       deja de desperdiciarse el código y el usuario ya no ve el error
+       en el camino feliz. Es un complemento de UX/eficiencia al fix
+       del backend, no un sustituto: sin el fix del backend, cualquier
+       OTRA causa de doble-submit (no solo StrictMode) seguiría
+       pudiendo generar dos tokens válidos de un solo código.
+  - **Verificación real de ambos fixes** (no solo lectura de código):
+    - Frontend: mismo método de reproducción (código de prueba en BD +
+      navegación real + Network tab), con el log de red limpiado
+      explícitamente entre cada prueba para evitar falsos positivos
+      por acumulación de requests de pruebas anteriores (error
+      metodológico propio detectado y corregido en el camino) — tras
+      el fix, exactamente **1 petición POST** por carga de página,
+      confirmado en una prueba aislada y limpia.
+    - Backend: script temporal que disparó 2 peticiones POST
+      GENUINAMENTE concurrentes (`asyncio.gather`) al mismo código
+      contra el servidor real — resultado: exactamente una `200` y una
+      `400`, nunca dos `200`. Script y su resultado no se guardan en
+      el repo (temporal, criterio ya establecido en este proyecto).
+  - Registro de prueba (`oauth_exchange_codes`, código
+    `ronda12_debug_test_codigo_001`) eliminado al terminar — verificado
+    por conteo total (6→5 en `oauth_exchange_codes`; `usuarios` se
+    mantuvo en 4 todo el tiempo, este código nunca llegó a crear un
+    Usuario).
+  - **Lección para futuros códigos de un solo uso en este proyecto**:
+    cualquier tabla tipo "canjear una vez" (este patrón, o
+    `PasswordResetToken` si en el futuro se le agrega concurrencia)
+    debe marcar el registro como usado con un UPDATE condicionado
+    (`WHERE usado=false ...`) devuelto con `RETURNING`, nunca con un
+    SELECT seguido de una escritura separada - el camino
+    "leer-después-escribir" no es seguro ante requests concurrentes,
+    ni siquiera dentro de un solo navegador (StrictMode ya demuestra
+    que "un solo usuario, una sola pestaña" puede producir requests
+    concurrentes reales).
 
 ## Actualizacion - Dato confirmado (coordenadas.xlsx real)
 El archivo coordenadas.xlsx entregado tiene 7 puntos de control (CONTROL 0 a 6), no 8 como se asumio inicialmente en el manual v1.3. El seed de la Estacion Chicamocha se creo con estos 7 puntos reales. Pendiente confirmar con el equipo de mineria si falta un punto fisico o si el manual estaba desactualizado.

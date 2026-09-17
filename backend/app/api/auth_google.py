@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -110,16 +110,30 @@ async def google_callback(request: Request, db: Annotated[AsyncSession, Depends(
 async def exchange(
     datos: CodigoExchange, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> ExchangeRespuesta:
-    registro = await db.scalar(
-        select(OAuthExchangeCode).where(OAuthExchangeCode.codigo == datos.codigo)
+    # UPDATE atomico (no SELECT + UPDATE por separado): el filtro
+    # `usado.is_(False)` esta DENTRO del UPDATE, asi que si dos requests
+    # concurrentes llegan con el mismo codigo (ej. React StrictMode
+    # invocando el efecto dos veces en desarrollo, un doble-click, un
+    # retry de red), Postgres serializa las dos escrituras sobre la
+    # misma fila - la segunda ya no encuentra `usado=False` y no
+    # actualiza nada, en vez de que ambas lean "no usado" antes de que
+    # cualquiera confirme y las dos generen un token valido. Ver
+    # DECISION en docs/PROJECT_CONTEXT.md.
+    resultado = await db.execute(
+        update(OAuthExchangeCode)
+        .where(
+            OAuthExchangeCode.codigo == datos.codigo,
+            OAuthExchangeCode.usado.is_(False),
+            OAuthExchangeCode.fecha_expiracion >= datetime.now(timezone.utc),
+        )
+        .values(usado=True)
+        .returning(OAuthExchangeCode)
     )
-    if registro is None or registro.usado:
-        raise CODIGO_INVALIDO
-    if registro.fecha_expiracion < datetime.now(timezone.utc):
-        raise CODIGO_INVALIDO
-
-    registro.usado = True
+    registro = resultado.scalar_one_or_none()
     await db.commit()
+
+    if registro is None:
+        raise CODIGO_INVALIDO
 
     if registro.tipo == TipoExchangeOAuth.LOGIN:
         # El JWT final se genera aqui (no en el callback) para que su
