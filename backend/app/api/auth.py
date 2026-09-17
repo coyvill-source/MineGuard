@@ -47,7 +47,13 @@ async def get_current_user(
     if usuario_id is None:
         raise credentials_exception
 
-    usuario = await db.get(Usuario, int(usuario_id))
+    try:
+        usuario = await db.get(Usuario, int(usuario_id))
+    except (ValueError, TypeError):
+        # Un token sin un `sub` numerico de Usuario (ej. el `registro_token`
+        # temporal de Google, que no lleva `sub`) nunca debe autenticar -
+        # ver DECISION en docs/PROJECT_CONTEXT.md sobre el flujo de Google.
+        raise credentials_exception
     if usuario is None:
         raise credentials_exception
 

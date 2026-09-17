@@ -1,6 +1,7 @@
 from app.models.bitacora_alertas import BitacoraAlertas, EstadoAlerta
 from app.models.estacion import Estacion
 from app.models.modelo_ml import ModeloML
+from app.models.oauth_exchange_code import OAuthExchangeCode, TipoExchangeOAuth
 from app.models.password_reset_token import PasswordResetToken
 from app.models.punto_control import PuntoControl
 from app.models.solicitud_cambio_punto_control import (
@@ -16,6 +17,8 @@ __all__ = [
     "EstadoAlerta",
     "Estacion",
     "ModeloML",
+    "OAuthExchangeCode",
+    "TipoExchangeOAuth",
     "PasswordResetToken",
     "PuntoControl",
     "EstadoSolicitudCambio",

@@ -982,6 +982,127 @@ En ambos casos, el usuario debe existir en la tabla Usuario con un rol
 asignado para poder acceder (igual que en el flujo original de SSO).
 El JWT emitido es el mismo sin importar el método de login usado.
 
+- DECISIÓN (2026-09-17): implementado el flujo de Google OAuth 2.0 en
+  el backend (frontend queda para la siguiente tarea). Librería:
+  **Authlib** (`authlib.integrations.starlette_client.OAuth`, cliente
+  registrado en `app/core/oauth.py` vía `server_metadata_url` de Google
+  para descubrimiento automático + validación de `id_token`). Nuevas
+  dependencias en `requirements.txt`: `authlib`, `httpx` (cliente HTTP
+  async que usa Authlib internamente), `itsdangerous` (lo requiere
+  `SessionMiddleware` de Starlette, agregado en `main.py`, para guardar
+  el `state`/`nonce` anti-CSRF entre `/login` y `/callback` — reutiliza
+  `settings.secret_key`, sin env var nueva).
+  - Primera versión de esta tarea (mismo día) había implementado un
+    RECHAZO simple cuando el `Usuario` no existía. **Esa versión quedó
+    reemplazada** por el diseño de abajo (mismo día, después de que el
+    usuario resolvió 3 decisiones de negocio pendientes) — se deja esta
+    nota para que quien lea el historial no se quede con la versión
+    vieja.
+  - **Los 4 endpoints** (`app/api/auth_google.py`, registrado con
+    prefijo `/api/auth` en `main.py`, junto al router de auth por
+    correo/contraseña que sigue intacto):
+    1. `GET /api/auth/google/login`: redirige a la pantalla de
+       consentimiento de Google (`oauth.google.authorize_redirect`) con
+       `redirect_uri` fijo `http://localhost:8000/api/auth/google/callback`
+       (ya registrado en Google Cloud Console — hardcodeado como
+       constante, mismo patrón que el link de `forgot-password` en
+       `auth.py`, no viene de env var).
+    2. `GET /api/auth/google/callback`: intercambia el código por el
+       perfil (`email`, `name`, `sub` como `google_id`) vía
+       `oauth.google.authorize_access_token`. Busca un `Usuario` por
+       `email` y NUNCA emite el JWT/token directamente en esta
+       respuesta — solo genera un `OAuthExchangeCode` (ver modelo
+       abajo) de un solo uso y 5 minutos de vida, y redirige con
+       `?code=<codigo_opaco>`:
+       - **Si el `Usuario` ya existe** (decisión 2, confirmada por el
+         usuario): se vincula automáticamente — `google_id` se asigna
+         solo si estaba vacío (no se pisa un `google_id` ya vinculado),
+         `ultimo_acceso` se actualiza. `metodo_registro` se deja
+         **tal cual estaba** (decisión explícita: refleja cómo se creó
+         la cuenta originalmente, no el último método usado para
+         entrar — igual que ya no se pisa `google_id`). Se crea un
+         `OAuthExchangeCode` tipo `LOGIN` (con `usuario_id`) y redirige
+         a `http://localhost:5173/dashboard?code=<codigo>`.
+       - **Si el `Usuario` NO existe** (decisión 1, confirmada por el
+         usuario): NO se crea nada todavía — se guardan `email`,
+         `nombre_google` y `google_id` (ya verificados por Google) en
+         un `OAuthExchangeCode` tipo `REGISTRO_PENDIENTE`, y redirige a
+         `http://localhost:5173/completar-registro-google?code=<codigo>`
+         (ruta de frontend pendiente, ver abajo).
+    3. `POST /api/auth/exchange` (decisión 3, confirmada por el
+       usuario: mecanismo único de entrega para ambos casos, para que
+       el JWT/datos sensibles nunca aparezcan en la URL del navegador
+       ni en su historial — la URL del redirect solo lleva un código
+       opaco de un solo uso). Recibe `{"codigo": "..."}`, valida que
+       exista, no esté usado y no haya expirado (si falla cualquiera
+       de las 3 condiciones: 400 genérico "código inválido, ya se usó,
+       o expiró" — mismo mensaje para las 3 causas, para no filtrar
+       cuál aplica) y lo marca `usado=True` de inmediato (un código
+       nunca se puede canjear dos veces). Según el `tipo` guardado:
+       - `LOGIN`: genera el JWT final AQUÍ (no en el callback), para
+         que su ventana de validez de 60 min empiece a contar desde el
+         intercambio real, no desde el redirect. Responde
+         `{"resultado": "login", "access_token": "...", "token_type": "bearer"}`.
+       - `REGISTRO_PENDIENTE`: genera el `registro_token` (JWT propio,
+         15 min, claim `"tipo": "registro_google_pendiente"` + `email`
+         + `google_id`, SIN `"sub"` — a propósito, para que jamás pueda
+         usarse como Bearer token de sesión: `get_current_user` en
+         `auth.py` ahora envuelve el `int(usuario_id)` en
+         `try/except (ValueError, TypeError)` porque este token no
+         tiene un `sub` numérico y antes eso hubiera sido un 500 sin
+         controlar en vez de un 401 limpio). Responde
+         `{"resultado": "registro_pendiente", "registro_token": "...", "email": "...", "nombre": "..."}`
+         (el `nombre` es el que vino de Google, editable por el
+         usuario en el formulario de completar registro).
+    4. `POST /api/auth/google/completar-registro`: recibe
+       `registro_token` + `apellidos`/`telefono`/`tipo_documento`/
+       `numero_documento` (obligatorios, igual que el registro normal)
+       + `nombre` (puede ser el mismo que vino de Google o uno editado
+       por el usuario). Decodifica y valida el `registro_token`
+       (firma + expiración vía `decode_access_token`, y el claim
+       `"tipo"` — si no es exactamente `"registro_google_pendiente"`,
+       400, para que un JWT de sesión normal no se pueda reusar aquí).
+       Revalida unicidad de `email` y `numero_documento` (409 si ya
+       existen — cubre la carrera donde alguien completó el registro
+       por correo/contraseña con ese mismo email mientras el
+       `registro_token` seguía vigente). Crea el `Usuario` con
+       `rol=RolUsuario.TRABAJADOR` fijo (mismo criterio de seguridad
+       que `auth.py`: el rol nunca se acepta del cliente),
+       `metodo_registro=GOOGLE`, `google_id` del token. Responde
+       `TokenRespuesta` — **exactamente el mismo shape que
+       `POST /api/auth/login`**.
+  - **Modelo nuevo**: `OAuthExchangeCode`
+    (`app/models/oauth_exchange_code.py`, tabla
+    `oauth_exchange_codes`, migración `4ff2deab983b` — aplicada a
+    `mineguard_db`) — mismo patrón que `PasswordResetToken` (código
+    único indexado, `fecha_expiracion`, `usado`), extendido con `tipo`
+    (enum `LOGIN`/`REGISTRO_PENDIENTE`), `usuario_id` nullable (solo
+    `LOGIN`) y `email`/`nombre_google`/`google_id` nullable (solo
+    `REGISTRO_PENDIENTE`). Es una tabla nueva con enum inline en
+    `create_table` — no aplica el bug conocido de Alembic+Enum
+    (`create_type=False` manual), que solo afecta `op.add_column`
+    sobre tablas ya existentes (ver nota de la migración
+    `9dd2b7ffdaeb` más arriba).
+  - **Limitación conocida (aceptada para esta fase)**: los
+    `OAuthExchangeCode` viven en Postgres (no en memoria), así que
+    sobreviven un reinicio del backend — pero no hay un job de
+    limpieza de códigos expirados/usados todavía; la tabla crece sin
+    límite con el uso. Aceptable mientras el volumen de logins por
+    Google sea bajo (fase de desarrollo); pendiente para una fase de
+    endurecimiento (ej. un `DELETE` periódico de códigos expirados).
+  - Pendiente (siguiente tarea, explícitamente fuera de esta): el
+    frontend — botón "Iniciar sesión con Google" que redirige a
+    `GET /api/auth/google/login`; una página que reciba `?code=` en
+    `/dashboard`, llame a `POST /api/auth/exchange`, y si
+    `resultado === "login"` guarde el `access_token` en memoria (igual
+    que ya hace `AuthContext` con el login normal) y limpie el `code`
+    de la URL con `history.replaceState`; la nueva ruta
+    `/completar-registro-google` que reciba `?code=`, llame también a
+    `/exchange` (`resultado === "registro_pendiente"`), muestre un
+    formulario prellenado con `email`/`nombre` para pedir
+    apellidos/teléfono/tipo y número de documento, y al enviarlo llame
+    a `POST /api/auth/google/completar-registro`.
+
 ## Actualizacion - Dato confirmado (coordenadas.xlsx real)
 El archivo coordenadas.xlsx entregado tiene 7 puntos de control (CONTROL 0 a 6), no 8 como se asumio inicialmente en el manual v1.3. El seed de la Estacion Chicamocha se creo con estos 7 puntos reales. Pendiente confirmar con el equipo de mineria si falta un punto fisico o si el manual estaba desactualizado.
 
