@@ -137,7 +137,7 @@ function ModalReportarAlerta({ token, onCerrar, onExito }) {
               <option value="">Selecciona un punto</option>
               {puntos.map((punto) => (
                 <option key={punto.id} value={punto.id}>
-                  {punto.nombre_estacion} (estación #{punto.estacion_id})
+                  Punto {punto.nombre_estacion} - {punto.estacion_nombre}
                 </option>
               ))}
             </select>

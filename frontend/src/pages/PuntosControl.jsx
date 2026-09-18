@@ -23,7 +23,9 @@ function ContenidoPuntosControl({ token, rol, puntos, isLoading, error, recargar
   const [mensajeExito, setMensajeExito] = useState("")
   const [errorAccion, setErrorAccion] = useState("")
 
-  const estacionesDisponibles = [...new Set(puntos.map((p) => p.estacion_id))]
+  const estacionesDisponibles = [
+    ...new Map(puntos.map((p) => [p.estacion_id, { id: p.estacion_id, nombre: p.estacion_nombre }])).values(),
+  ]
 
   function manejarExitoModal(mensaje) {
     setMensajeExito(mensaje)

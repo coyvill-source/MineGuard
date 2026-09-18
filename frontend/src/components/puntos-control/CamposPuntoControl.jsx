@@ -18,9 +18,9 @@ function CamposPuntoControl({ valores, onCambiar, estacionesDisponibles, placeho
           className="mt-1.5 w-full rounded-lg border border-mg-surface-100 bg-mg-surface-50 px-4 py-2.5 text-sm text-mg-navy-900 outline-none transition focus:border-mg-accent-500 focus:ring-2 focus:ring-mg-accent-300"
         >
           <option value="">{placeholderVacio}</option>
-          {estacionesDisponibles.map((id) => (
-            <option key={id} value={id}>
-              Estación #{id}
+          {estacionesDisponibles.map((estacion) => (
+            <option key={estacion.id} value={estacion.id}>
+              {estacion.nombre}
             </option>
           ))}
         </select>

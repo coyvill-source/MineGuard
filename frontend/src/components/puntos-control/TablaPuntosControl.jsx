@@ -10,7 +10,7 @@ function FilaPuntoControl({ punto, esGestor, onEditar, onEliminar }) {
   return (
     <tr className="border-b border-mg-surface-100 last:border-0">
       <td className="px-4 py-3 text-sm font-medium text-mg-navy-900">{punto.nombre_estacion}</td>
-      <td className="px-4 py-3 text-sm text-mg-navy-700">#{punto.estacion_id}</td>
+      <td className="px-4 py-3 text-sm text-mg-navy-700">{punto.estacion_nombre}</td>
       <td className="px-4 py-3 text-sm text-mg-navy-700">{formatearCoord(punto.coord_x)}</td>
       <td className="px-4 py-3 text-sm text-mg-navy-700">{formatearCoord(punto.coord_y)}</td>
       <td className="px-4 py-3 text-sm text-mg-navy-700">{formatearCoord(punto.coord_z)}</td>

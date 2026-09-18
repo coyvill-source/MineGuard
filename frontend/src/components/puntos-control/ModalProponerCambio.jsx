@@ -57,7 +57,9 @@ function ModalProponerCambio({ puntos, token, onCerrar, onExito }) {
   const [error, setError] = useState("")
 
   const puntosActivos = puntos.filter((p) => p.activo)
-  const estacionesDisponibles = [...new Set(puntos.map((p) => p.estacion_id))]
+  const estacionesDisponibles = [
+    ...new Map(puntos.map((p) => [p.estacion_id, { id: p.estacion_id, nombre: p.estacion_nombre }])).values(),
+  ]
 
   function cambiarTipo(nuevoTipo) {
     setTipo(nuevoTipo)

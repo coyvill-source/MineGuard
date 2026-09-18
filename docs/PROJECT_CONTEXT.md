@@ -1239,6 +1239,56 @@ siguen guardando `origen=sensor` por default, sin necesitar tocarse.
   `POST /api/telemetria/lectura-manual`) — dos conceptos de dominio
   distintos (alerta vs. telemetría) que coincidían en compartir la
   palabra "manual" en su fraseo antes de esta aclaración.
+- DECISIÓN (2026-09-18): se eliminó del frontend el texto genérico
+  "(estación #{estacion_id})" / "Estación #{id}" (el número interno de
+  la BD) en todos los lugares donde aparecía, reemplazándolo por el
+  nombre real de la estación ("Estación Chicamocha"). No hizo falta
+  ningún cambio de backend: `estacion_nombre` ya viene en cada punto
+  desde `GET /api/puntos-control` (agregado en la DECISIÓN del
+  dropdown de editar/eliminar, más arriba) — solo faltaba que el
+  frontend lo usara en el resto de lugares que todavía armaban el
+  texto a mano con `estacion_id`.
+  - `TablaPuntosControl.jsx`: la columna "Estación" mostraba
+    `#{punto.estacion_id}` → ahora `{punto.estacion_nombre}`.
+  - `ModalReportarAlerta.jsx`: el `<option>` del selector de punto de
+    control mostraba `{nombre_estacion} (estación #{estacion_id})` →
+    ahora `Punto {nombre_estacion} - {estacion_nombre}`, mismo formato
+    ya usado en `ModalProponerCambio.jsx`/`ModalReportarLecturaManual.jsx`
+    (unifica el formato de las 3 pantallas que listan puntos de
+    control en un `<select>`).
+  - `CamposPuntoControl.jsx` (el `<select>` "Estación" compartido por
+    `ModalProponerCambio` en modo Crear y por `ModalPuntoDirecto`
+    Crear/Editar — el único lugar donde de verdad se ELIGE/ASIGNA una
+    estación, no solo se muestra): el prop `estacionesDisponibles`
+    era un array de ids (`estacion_id[]`) usado para renderizar
+    `Estación #{id}`. Cambió de forma a un array de objetos
+    `{id, nombre}[]`, derivado en cada llamador con
+    `new Map(puntos.map((p) => [p.estacion_id, {id: p.estacion_id, nombre: p.estacion_nombre}])).values()`
+    (dedupe por id igual que antes, ahora arrastrando también el
+    nombre real) en vez de `new Set(puntos.map((p) => p.estacion_id))`
+    — actualizado en `ModalProponerCambio.jsx` y `pages/PuntosControl.jsx`
+    (este último se lo pasa a `ModalPuntoDirecto`). Sigue sin existir
+    un endpoint para listar Estaciones de forma independiente (misma
+    limitación ya documentada) — el nombre sigue derivándose de los
+    puntos de control ya cargados, no de una fuente nueva.
+  - `SeccionSolicitudesPendientes.jsx` NO se tocó: ahí `estacion_id`
+    aparece dentro de un resumen genérico campo:valor de
+    `datos_propuestos` de una solicitud pendiente (ej. "estacion_id: 1"
+    si alguien propuso cambiar la estación de un punto), no como el
+    patrón "(estación #X)" que reportó este hallazgo — mostrar ahí
+    el nombre en vez del id requeriría lógica especial solo para ese
+    campo dentro de un resumen que hoy es deliberadamente genérico
+    para cualquier campo propuesto; no se cambió sin que se pida
+    explícitamente.
+  - Verificado en navegador real (usuario trabajador de prueba): tabla
+    de Puntos de Control, dropdown de "Proponer cambio" (Editar/
+    Eliminar), dropdown de "Reportar alerta" y dropdown de "Reportar
+    lectura manual" muestran todos "Estación Chicamocha" — ningún
+    "estación #1" genérico visible. El `<select>` "Estación" al Crear
+    un punto (Trabajador y Supervisor/Admin) también muestra
+    "Estación Chicamocha" en vez de "Estación #1". Sin errores de
+    consola. Usuario de prueba eliminado al terminar, verificado con
+    `SELECT COUNT(*)` total.
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.
