@@ -3,7 +3,7 @@ import io
 import random
 import unicodedata
 import warnings
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 from datetime import timezone
 from pathlib import Path
@@ -12,7 +12,7 @@ from typing import Annotated
 import joblib
 import pandas as pd
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
@@ -26,6 +26,7 @@ from app.models.usuario import RolUsuario, Usuario
 from app.schemas.telemetria import (
     GeneradorContinuoIniciarSolicitud,
     GeneradorContinuoRespuesta,
+    HistorialLectura,
     IngestaAleatoriaRespuesta,
     IngestaAleatoriaSolicitud,
     IngestaArchivoRespuesta,
@@ -545,5 +546,59 @@ async def telemetrias_recientes(
         .order_by(Telemetria.timestamp.desc())
         .limit(LIMITE_RECIENTES)
     )
+    resultado = await db.scalars(consulta)
+    return list(resultado.all())
+
+
+# Tope de puntos para el grafico historico: mas que esto vuelve el SVG del
+# navegador lento/ilegible (miles de puntos apretados en un eje X) y ya no
+# aporta lectura de tendencia. DECISION: en vez de muestrear en silencio
+# (podria ocultar picos reales de gas, justo lo que un grafico de seguridad
+# no puede permitirse), se rechaza con 400 y un mensaje claro pidiendo
+# acortar el rango - ver docs/PROJECT_CONTEXT.md.
+LIMITE_HISTORIAL = 500
+
+
+@router.get("/historial", response_model=list[HistorialLectura])
+async def historial_telemetria(
+    punto_control_id: int,
+    desde: date,
+    hasta: date,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _actor: Annotated[Usuario, Depends(requiere_rol(RolUsuario.TRABAJADOR))],
+) -> list[Telemetria]:
+    punto_control = await db.get(PuntoControl, punto_control_id)
+    if punto_control is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="El punto de control indicado no existe"
+        )
+
+    if desde > hasta:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha 'desde' no puede ser posterior a 'hasta'.",
+        )
+
+    # Rango inclusivo de dia completo: 'hasta' cubre hasta el ultimo
+    # microsegundo de ese dia, no solo su medianoche.
+    inicio = datetime.combine(desde, dt_time.min, tzinfo=timezone.utc)
+    fin = datetime.combine(hasta, dt_time.max, tzinfo=timezone.utc)
+    filtro = (
+        (Telemetria.punto_id == punto_control_id)
+        & (Telemetria.timestamp >= inicio)
+        & (Telemetria.timestamp <= fin)
+    )
+
+    total = await db.scalar(select(func.count()).select_from(Telemetria).where(filtro))
+    if total > LIMITE_HISTORIAL:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"El rango seleccionado tiene {total} lecturas, supera el límite de "
+                f"{LIMITE_HISTORIAL} del gráfico histórico. Acorta el rango de fechas e intenta de nuevo."
+            ),
+        )
+
+    consulta = select(Telemetria).where(filtro).order_by(Telemetria.timestamp.asc())
     resultado = await db.scalars(consulta)
     return list(resultado.all())

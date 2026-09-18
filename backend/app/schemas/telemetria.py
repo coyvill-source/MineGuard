@@ -73,3 +73,15 @@ class LecturaManualRespuesta(BaseModel):
     # Temp/Humed/Bateria y por lo tanto no corrio el pipeline ML (ver
     # DECISION en docs/PROJECT_CONTEXT.md).
     corregido_por_modelo: bool
+
+
+class HistorialLectura(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    timestamp: datetime
+    temperatura: float | None
+    humedad: float | None
+    bateria: float | None
+    gas_corregido: float | None
+    gas_corregido_porcentaje: float | None
+    nivel_alerta: NivelAlerta

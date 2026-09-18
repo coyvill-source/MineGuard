@@ -15,7 +15,7 @@ lectura del sensor de gas.
 - ML: scikit-learn + joblib (modelo ya entrenado: RandomForestRegressor)
 - Base de datos: PostgreSQL (asyncpg)
 - Frontend: React + Vite + Tailwind CSS v4 (plugin @tailwindcss/vite,
-  sin tailwind.config.js clásico, sin CLI init)
+  sin tailwind.config.js clásico, sin CLI init) + Recharts (gráficos)
 - Autenticación: Google OAuth 2.0 + JWT
 - Empaquetado: Docker + docker-compose + Nginx
 
@@ -1289,6 +1289,206 @@ siguen guardando `origen=sensor` por default, sin necesitar tocarse.
     "Estación Chicamocha" en vez de "Estación #1". Sin errores de
     consola. Usuario de prueba eliminado al terminar, verificado con
     `SELECT COUNT(*)` total.
+- DECISIÓN (2026-09-18): sección de gráfico histórico en
+  `/puntos-control`, debajo de la tabla y de "Solicitudes pendientes"
+  — el usuario elige un punto de control y un rango de fechas y ve su
+  comportamiento en el tiempo (temperatura, humedad, batería, gas
+  corregido en %).
+  - **Librería de gráficos — `recharts@3.10.1`** (+ `react-is` como
+    peer dependency), elegida vía `context7` (docs actualizadas) y con
+    guía de `react-expert`: soporta React 19 oficialmente
+    (`peerDependencies` incluye `^19.0.0`, confirmado contra el
+    `package.json` real de la librería, no supuesto), es la opción
+    declarativa estándar para gráficos en React (componentes JSX
+    componibles, no una API imperativa tipo Chart.js envuelta a mano),
+    tiene soporte nativo de doble eje Y (`yAxisId` en `YAxis`/`Line`)
+    que esta tarea necesitaba, y `ResponsiveContainer` resuelve el
+    responsive sin CSS a mano. Alternativas descartadas: Chart.js/
+    react-chartjs-2 (API imperativa, menos idiomático en React 19),
+    Victory (bundle más pesado, menos activo), visx (muy bajo nivel
+    para lo que pedía la tarea, requeriría construir ejes/tooltip a
+    mano).
+  - **Backend**: `GET /api/telemetria/historial?punto_control_id=X&desde=YYYY-MM-DD&hasta=YYYY-MM-DD`
+    (rol mínimo trabajador, `backend/app/api/telemetria.py`, schema
+    `HistorialLectura` en `schemas/telemetria.py`). `desde`/`hasta` son
+    query params `date` obligatorios — si faltan, FastAPI ya responde
+    422 con detalle claro de qué campo falta (mismo comportamiento que
+    el resto de la API, no se duplicó esa validación a mano). 404 si
+    el punto no existe; 400 explícito si `desde > hasta`. Rango
+    inclusivo de día completo (`desde` 00:00:00 UTC a `hasta`
+    23:59:59.999999 UTC). Devuelve `timestamp, temperatura, humedad,
+    bateria, gas_corregido, gas_corregido_porcentaje, nivel_alerta`
+    ordenado ascendente — `temperatura`/`humedad`/`bateria`/
+    `gas_corregido`/`gas_corregido_porcentaje` pueden venir `NULL`
+    (lecturas manuales solo-gas, ver DECISIÓN de "lectura manual" más
+    arriba) y `nivel_alerta` puede ser `SIN_CLASIFICAR` — el frontend
+    ya está preparado para huecos (`connectNulls` en cada `Line`).
+    - **`LIMITE_HISTORIAL = 500`**: si el rango pedido tiene más
+      lecturas que eso, el endpoint responde 400 con el conteo real y
+      un mensaje pidiendo acortar el rango — DECISIÓN explícita de
+      **rechazar en vez de muestrear en silencio**: este es un
+      gráfico de seguridad (gas metano), y un muestreo automático
+      podría ocultar un pico real de gas entre dos puntos muestreados,
+      justo el escenario que este panel existe para no perderse. El
+      conteo se calcula con un `SELECT COUNT(*)` antes de traer las
+      filas, para no cargar de más solo para descartarlo después.
+      Verificado con datos reales: el punto con más actividad
+      (`punto_id=1`, 1731 lecturas entre 2026-09-12 y 2026-09-17) sí
+      dispara el 400 al pedir el rango completo, y un rango de un solo
+      día del mismo punto (bajo 500) responde normalmente.
+  - **Frontend**: `frontend/src/components/puntos-control/GraficoHistorial.jsx`,
+    montado desde `PuntosControl.jsx` (recibe `puntos`/`token` como
+    props, reutiliza los puntos ya cargados por la página — no vuelve
+    a pedirlos al backend, mismo patrón que
+    `ModalProponerCambio`/`ModalReportarAlerta`). Fetch inline con
+    `useEffect` sobre `[token, puntoControlId, rango]` (mismo patrón
+    de las cascadas de selects ya usadas en
+    `ModalReportarAlerta.jsx`/`ModalReportarLecturaManual.jsx` — no se
+    introdujo un hook nuevo tipo `useEstadoActual` porque aquí el
+    fetch depende de 3 controles que el usuario cambia libremente, no
+    de un polling automático).
+    - **Punto de control**: `<select>` con el mismo formato "Punto X -
+      Estación Y" ya unificado en el resto de la pantalla; se
+      autoselecciona el primer punto activo al cargar.
+    - **Rango de fechas**: dos `<input type="date">` (Desde/Hasta),
+      cada uno acota al otro con `min`/`max` nativos del navegador
+      para que no se pueda armar un rango invertido desde la UI (el
+      backend igual valida `desde > hasta` por si acaso). **Rango por
+      defecto: últimos 3 días** — suficiente para mostrar algo apenas
+      se abre la sección sin exigir que el usuario elija fechas a
+      mano, y corto a propósito para no chocar de entrada con
+      `LIMITE_HISTORIAL` en un punto con actividad reciente alta.
+    - **Checkboxes de variables: las 4 visibles por defecto**
+      (Temperatura/Humedad/Batería/Gas corregido) — se interpretó "el
+      usuario decide cuáles ver a la vez" como que arranca mostrando
+      todo y el usuario desmarca lo que no le interesa (opt-out), no
+      que arranca vacío (opt-in). Cada línea se renderiza
+      condicionalmente (`variablesActivas.map(...)`) en vez de usar la
+      prop `hide` de recharts — más simple y evita que el eje derecho
+      se dibuje sin necesidad cuando el gas está desmarcado.
+    - **Doble eje Y**: Temperatura/Humedad/Batería comparten el eje
+      izquierdo (escalas comparables entre sí, 0-35/0-100/0-100); el
+      gas corregido en % de metano va en un eje derecho propio
+      (0-2% típico según Decreto 1886) — mezclarlo con las otras 3 en
+      la misma escala lo aplanaría a una línea casi pegada a 0. Cada
+      eje solo se renderiza si hay al menos una variable activa que lo
+      use (evita un eje vacío si, por ejemplo, se desmarca Gas
+      corregido).
+    - **Colores de las 4 líneas deliberadamente DISTINTOS de la
+      paleta semáforo** (`mg-safe`/`mg-alert`/`mg-danger`, verde/
+      amarillo/rojo ya usada en el Dashboard para `nivel_alerta`):
+      Temperatura en `mg-accent-500` (azul de marca), Humedad en
+      `emerald-600` (mismo tono ya usado para el túnel decorativo del
+      Dashboard), Batería en `purple-600` (mismo tono ya usado para el
+      estado "muteada" en Alertas), Gas corregido en `mg-navy-800`
+      (azul oscuro de marca). Ninguna reutiliza los colores de alerta
+      para no sugerir que la línea en sí representa un estado de
+      riesgo — son series de datos, no el semáforo (mismo criterio ya
+      documentado para el túnel decorativo de `PlanoPuntosControl.jsx`).
+    - **Eje X**: categórico (no de tiempo continuo/numérico) con las
+      marcas formateadas a fecha+hora corta y `Tooltip` con fecha
+      completa — simplificación deliberada frente a un eje temporal
+      real con escala proporcional al tiempo transcurrido (que
+      requeriría convertir timestamps a números y manejar dominio
+      manualmente); con lecturas más o menos regularmente espaciadas
+      dentro de un mismo rango esto es legible y evita la complejidad
+      extra. Pendiente a revisar si en el futuro se grafican rangos
+      con huecos de tiempo muy irregulares dentro de un mismo punto.
+    - **Estados manejados**: sin puntos activos, cargando, error (de
+      red o el 400/404 del backend, mostrado tal cual via `ApiError` -
+      mismo patrón que el resto del frontend), "sin lecturas en ese
+      rango" (distinto de "cargando", usa una bandera `consultado`
+      para no mostrarlo antes de la primera consulta), y "ninguna
+      variable seleccionada" (si el usuario desmarca las 4 casillas).
+    - Nueva función `obtenerHistorialTelemetria` en `src/lib/api.js`,
+      mismo patrón que las demás.
+  - Verificado en navegador real (usuario trabajador de prueba,
+    mismo patrón `.example.com` ya documentado): rango por defecto
+    (últimos 3 días) dibuja el gráfico con las 4 líneas y doble eje
+    apenas se abre la sección; desmarcar "Batería" oculta esa línea y
+    su entrada de leyenda y el eje izquierdo reescala automáticamente;
+    rango 2020-01-01/2020-01-02 (sin lecturas) muestra el mensaje "No
+    hay lecturas..."; rango completo del punto más activo (1731
+    lecturas) dispara el mensaje de límite superado con el conteo
+    real; acortar ese mismo rango a un día vuelve a dibujar el
+    gráfico correctamente. Sin errores de consola en ningún caso.
+    Usuario de prueba eliminado al terminar (el endpoint es de solo
+    lectura, no se generó ningún otro dato de prueba); verificado con
+    `SELECT COUNT(*)` total que las demás tablas no cambiaron.
+- DECISIÓN (2026-09-18): pulido visual de `GraficoHistorial.jsx` tras
+  revisión del usuario con una captura real — las líneas se veían
+  delgadas y los colores parecían los genéricos de ejemplo de
+  recharts en vez de sentirse parte de la identidad visual del
+  proyecto.
+  - **Líneas más gruesas**: `strokeWidth` de las 4 series subió del
+    default de recharts (1px) a `2.75` (constante `GROSOR_LINEA`,
+    dentro del rango 2.5-3 pedido), con `strokeLinecap="round"` y
+    `strokeLinejoin="round"` — se ven con más presencia y los picos no
+    quedan con esquinas afiladas. `activeDot` (el punto que aparece al
+    pasar el mouse) subió de su tamaño default a `r: 5` para
+    mantenerse proporcional al grosor nuevo de la línea.
+  - **Colores alineados a la marca** (antes: `#2e75b6`/`#059669`/
+    `#7c3aed`/`#1f3864` — ya eran de marca en teoría, pero `#7c3aed`
+    en particular se parece bastante al lila de ejemplo `#8884d8` que
+    aparece en casi todos los snippets de la documentación de
+    recharts, que fue probablemente lo que se leyó como "colores por
+    defecto"). Colores nuevos, los 4 tomados de tokens/tonos YA
+    usados en otras pantallas de este mismo proyecto (ninguno
+    inventado):
+    - Temperatura: `#2e75b6` (`mg-accent-500`, sin cambios).
+    - Humedad: `#047857` (`emerald-700` — el mismo tono exacto ya
+      usado para el túnel decorativo de `PlanoPuntosControl.jsx`, más
+      oscuro/saturado que el `#059669` anterior).
+    - Batería: `#7e22ce` (`purple-700` — el mismo tono exacto ya
+      usado para el badge de estado "muteada" en `TablaAlertas.jsx`,
+      más vívido/saturado que el `#7c3aed` anterior, claramente
+      distinto del lila de ejemplo de recharts).
+    - Gas corregido: `#1f3864` (`mg-navy-800`, sin cambios).
+    - Se mantiene la restricción ya documentada: ninguno de los 4
+      coincide con la paleta semáforo (`mg-safe`/`mg-alert`/
+      `mg-danger`) para no confundir "línea de dato" con "estado de
+      alerta" — el motivo original sigue documentado en el propio
+      código (`GraficoHistorial.jsx`).
+  - **Integración visual con el resto de paneles**:
+    - El contenedor ganó `shadow-lg shadow-mg-navy-900/5` — el mismo
+      token de "carta elevada" que ya usan Login/Registro/
+      OlvidePassword/ResetPassword y el gate de sesión de
+      `DashboardLayout` (documentado en la ronda de pulido del Plano);
+      antes el panel no tenía sombra y desentonaba con el resto de la
+      app.
+    - Ejes (ticks y línea del eje) pasaron del gris genérico de
+      recharts a tonos de la familia azul/navy de marca (`fill:
+      "#274a7e"` para las etiquetas, `stroke: "#d7e3f0"` para la
+      línea del eje) — la grilla (`CartesianGrid`) ya usaba
+      `#eaf1f8` (`mg-surface-100` exacto), no se tocó.
+    - El `<Tooltip>` ganó esquinas redondeadas (`borderRadius: 12`,
+      mismo radio que las tarjetas `rounded-xl` del resto de la app) y
+      su borde pasó a `#eaf1f8` (`mg-surface-100`) en vez del gris
+      default.
+    - Se **quitó el `<Legend/>` de recharts** (el listado de nombres
+      de serie que aparecía debajo del gráfico): las casillas de
+      verificación de arriba ya muestran nombre + color de cada serie
+      y cumplen ese mismo rol de forma interactiva, así que la leyenda
+      de abajo era información duplicada sin aportar nada nuevo — quitarla
+      simplifica el panel en vez de sumar otro elemento visual.
+    - Las **casillas de verificación se rediseñaron como "chips"**
+      (`rounded-full`, borde `mg-surface-100`): activa = fondo
+      `mg-surface-50` + texto `mg-navy-900` + punto de color a opacidad
+      completa; inactiva = fondo blanco + texto atenuado
+      (`text-mg-navy-700/50`) + punto de color a 35% de opacidad — el
+      estado on/off ahora se lee de un vistazo por el estilo del chip
+      completo, no solo por el estado del checkbox nativo (que sigue
+      ahí, funcional y accesible, dentro del chip).
+  - Verificado en navegador real (usuario trabajador de prueba, mismo
+    patrón ya documentado): líneas visiblemente más gruesas con
+    extremos redondeados, colores distinguibles entre sí y ninguno
+    parecido al semáforo ni a los ejemplos de recharts, panel con
+    sombra consistente con el resto de tarjetas de la app, chips de
+    variables con estado activo/inactivo claro al alternarlos
+    (desmarcar "Batería" oculta la línea, atenúa el chip, y el eje
+    izquierdo reescala). Sin errores de consola. Usuario de prueba
+    eliminado al terminar; verificado con `SELECT COUNT(*)` total que
+    ninguna tabla cambió (endpoint de solo lectura).
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.

@@ -225,3 +225,10 @@ export function reportarLecturaManual(token, datos) {
     body: JSON.stringify(datos),
   })
 }
+
+export function obtenerHistorialTelemetria(token, { puntoControlId, desde, hasta }) {
+  const query = new URLSearchParams({ punto_control_id: puntoControlId, desde, hasta })
+  return request(`/api/telemetria/historial?${query}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
