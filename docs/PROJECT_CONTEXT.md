@@ -967,6 +967,104 @@ pertenece.
   `PATCH /api/usuarios/{id}/rol` (requiere admin), en el nuevo router
   `backend/app/api/usuarios.py` (prefijo `/api/usuarios`, registrado en
   `main.py`).
+- VERIFICACIÓN (2026-09-18): se reportó como hallazgo de pruebas
+  manuales que en `ModalProponerCambio.jsx` el campo para identificar
+  el punto de control objetivo en EDITAR/ELIMINAR era texto libre. Al
+  revisar el código en la rama `feature/dropdown-editar-punto` (al día
+  con `develop`), ese campo **ya era un `<select>`** desde su único
+  commit de origen (`7820314`, 2026-09-13) — no texto libre: usa
+  `puntos` (poblado vía `listarPuntosControl`), filtra por `activo`, y
+  el `value` de cada `<option>` es el `id` real del punto
+  (`ModalProponerCambio.jsx` líneas ~121-140). No se requirió ningún
+  cambio de código esta sesión — el "hallazgo" ya estaba resuelto en
+  el código actual (posible causa: prueba manual contra una versión
+  vieja/cacheada del frontend, no se pudo confirmar la causa exacta).
+  - Verificado end-to-end en navegador real (usuario trabajador de
+    prueba, creado vía API por rechazo de dominios `.test` en la
+    validación de email — ver detalle abajo) + consulta directa a
+    `mineguard_db`: se propuso una edición del punto id 4
+    (`nombre_estacion="3"`) seleccionándolo del dropdown, y la fila
+    resultante en `solicitudes_cambio_punto_control` (id 5) mostró
+    `punto_control_id=4` — el mismo id del punto seleccionado — con
+    `datos_propuestos={"coord_z": 9999.99}`, confirmando el mapeo
+    correcto entre la opción elegida en el UI y el id real que espera
+    el backend.
+  - Efecto colateral de la prueba (reportado según metodología): se
+    creó un usuario trabajador temporal
+    (`qa.dropdown.temporal@mineguard-qa.example.com`, id 43 — se usó
+    `.example.com` porque `POST /api/auth/register` rechaza dominios
+    `.test` por validación estricta de email) y la solicitud de
+    cambio id 5 ya descrita. Ambos se eliminaron al terminar la
+    verificación; limpieza confirmada con `SELECT COUNT(*)` total (no
+    solo filtro por patrón) sobre las 3 tablas involucradas:
+    `usuarios` (5, igual que antes), `solicitudes_cambio_punto_control`
+    (2, igual que antes) y `puntos_control` (8, sin cambios — la
+    solicitud nunca se aprobó, así que la tabla de puntos nunca se
+    tocó).
+  - Nota aparte (resuelta en la tarea siguiente, ver DECISIÓN
+    2026-09-18 más abajo): el texto de cada `<option>` del dropdown en
+    ese momento era `"{nombre_estacion} (estación #{estacion_id})"`
+    (ej. "3 (estación #1)"), no el formato "Punto 3 - Estación
+    Chicamocha" pedido originalmente.
+- DECISIÓN (2026-09-18): se mejoró la etiqueta del dropdown "Punto de
+  control existente" de `ModalProponerCambio.jsx` (nota pendiente de
+  la entrada anterior) a `"Punto {nombre_estacion} - {estacion_nombre}"`
+  (ej. "Punto 3 - Estación Chicamocha"), usando el nombre real de la
+  estación en vez de inventarlo o mostrar solo su id.
+  - **Backend**: `GET /api/puntos-control` (y el resto de endpoints
+    que devuelven `PuntoControlRespuesta` — crear/actualizar directo)
+    no traía el nombre de la `Estacion`, solo su `estacion_id` — no
+    existe (y sigue sin existir) un endpoint dedicado a listar
+    Estaciones (ver limitación ya documentada). Se extendió el
+    `PuntoControl` existente en vez de crear un endpoint nuevo:
+    - `backend/app/models/punto_control.py`: la relación `estacion`
+      (ya existía, apuntando 1-a-1 al `Estacion` real vía
+      `estacion_id`) ganó `lazy="selectin"` — mismo patrón que ya
+      usan `PuntoControl.telemetrias`, `Estacion.puntos_control`, etc.
+      en este mismo archivo/proyecto para relaciones seguras de leer
+      en contexto async (SQLAlchemy con asyncpg no soporta lazy-load
+      implícito fuera de un `await`; `selectin` sí, con un query
+      adicional propio). Se agregó también una `@property
+      estacion_nombre` de solo lectura (`self.estacion.nombre`), sin
+      tocar ninguna columna mapeada.
+    - `backend/app/schemas/punto_control.py`: `PuntoControlRespuesta`
+      ganó el campo `estacion_nombre: str` — Pydantic lo resuelve solo
+      vía `from_attributes=True` leyendo la property nueva del ORM,
+      sin necesitar un validador manual.
+    - Sin migración de Alembic (no se tocó ninguna columna de BD, solo
+      lectura de una relación que ya existía) y sin cambios en
+      `datos_propuestos`/`SolicitudCambioCrear` (la solicitud sigue
+      guardando y aplicando solo `estacion_id`, nunca el nombre).
+    - Verificado que no rompe nada existente: `pytest` completo del
+      backend, 76/76 pruebas verdes sin tocar ninguna (ninguna hacía
+      assert de igualdad exacta de claves en la respuesta, así que
+      agregar un campo no las afecta).
+  - **Frontend**: `ModalProponerCambio.jsx`, el `<option>` de
+    `puntosActivos` ahora arma
+    `` `Punto ${p.nombre_estacion} - ${p.estacion_nombre}` `` en vez
+    de mostrar el `estacion_id` numérico crudo. Cambio acotado a ese
+    único selector (el de "Estación" en `CamposPuntoControl.jsx`, que
+    lista estaciones por id porque no hay endpoint para listarlas por
+    nombre, y las demás pantallas que muestran `#{estacion_id}`, no se
+    tocaron — no fue parte de lo pedido).
+  - Verificado en navegador real (usuario trabajador de prueba,
+    reutilizando el mismo patrón de la entrada anterior — dominio
+    `.example.com`, no `.test`, por la misma validación de email ya
+    documentada): el dropdown mostró las 7 opciones como
+    "Punto 0 - Estación Chicamocha" .. "Punto 6 - Estación Chicamocha"
+    (dato real desde la BD, no texto inventado); se propuso una
+    edición sobre el punto "3" (id real 4) y en
+    `solicitudes_cambio_punto_control` quedó
+    `punto_control_id=4`/`datos_propuestos={"coord_z": 8888.88}` —
+    mapeo correcto confirmado de nuevo tras el cambio.
+  - Efecto colateral de la prueba (igual que la entrada anterior,
+    mismo patrón): usuario trabajador temporal (id 44, mismo correo
+    `.example.com` reutilizado tras recrear la cuenta) y la solicitud
+    de cambio id 6. Ambos eliminados al terminar; limpieza confirmada
+    con `SELECT COUNT(*)` total sobre las 3 tablas: `usuarios` (5),
+    `solicitudes_cambio_punto_control` (2) y `puntos_control` (8) —
+    todas de vuelta a la línea base previa a ambas tareas de
+    verificación de esta rama.
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.

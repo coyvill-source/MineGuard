@@ -23,7 +23,11 @@ class PuntoControl(Base):
     coord_z: Mapped[float] = mapped_column(Float, nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    estacion: Mapped["Estacion"] = relationship(back_populates="puntos_control")
+    estacion: Mapped["Estacion"] = relationship(back_populates="puntos_control", lazy="selectin")
     telemetrias: Mapped[list["Telemetria"]] = relationship(
         back_populates="punto_control", lazy="selectin"
     )
+
+    @property
+    def estacion_nombre(self) -> str:
+        return self.estacion.nombre

@@ -29,6 +29,7 @@ class PuntoControlRespuesta(BaseModel):
     id: int
     estacion_id: int
     nombre_estacion: str
+    estacion_nombre: str
     coord_x: float
     coord_y: float
     coord_z: float

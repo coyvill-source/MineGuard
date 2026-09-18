@@ -132,7 +132,7 @@ function ModalProponerCambio({ puntos, token, onCerrar, onExito }) {
               <option value="">Selecciona un punto</option>
               {puntosActivos.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.nombre_estacion} (estación #{p.estacion_id})
+                  Punto {p.nombre_estacion} - {p.estacion_nombre}
                 </option>
               ))}
             </select>
