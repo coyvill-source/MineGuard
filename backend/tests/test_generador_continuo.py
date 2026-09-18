@@ -143,16 +143,36 @@ async def test_genera_lecturas_periodicas_para_puntos_activos(
     )
     assert inicio.status_code == 200
 
-    await asyncio.sleep(6.5)  # deja pasar al menos un tick
+    # Espera ACTIVA (poll) en vez de un sleep fijo: `_bucle_generador_continuo`
+    # genera su primer lote casi de inmediato al iniciar (antes del primer
+    # `asyncio.sleep(intervalo_segundos)` del bucle, ver telemetria.py), asi
+    # que en la practica esto suele resolver en bien menos de 1s. El sleep
+    # fijo anterior (6.5s, pensado como "un poco mas que el intervalo minimo
+    # de 5s") fallo de forma intermitente corriendo la suite completa (75
+    # passed, 1 failed - assert 0 >= 1) pero paso consistente corriendo sola
+    # o en una segunda corrida completa: bajo la carga de las otras 75
+    # pruebas en el mismo proceso, el scheduling del event loop a veces
+    # tardaba mas que el margen fijo. El poll reintenta cada 0.2s hasta un
+    # techo generoso de 15s (3x el intervalo minimo), asi que tolera esa
+    # carga sin alargar el caso comun ni depender de adivinar un numero de
+    # segundos "seguro" - ver DECISION en docs/PROJECT_CONTEXT.md.
+    TIMEOUT_SEGUNDOS = 15.0
+    INTERVALO_POLL = 0.2
+    limite = asyncio.get_event_loop().time() + TIMEOUT_SEGUNDOS
+    filas: list[Telemetria] = []
+    while asyncio.get_event_loop().time() < limite:
+        filas = (
+            await db_session.scalars(
+                select(Telemetria).where(Telemetria.punto_id == estacion_y_punto.punto.id)
+            )
+        ).all()
+        if len(filas) >= 1:
+            break
+        await asyncio.sleep(INTERVALO_POLL)
 
     await client.post("/api/telemetria/generador-continuo/detener", headers=usuario_admin.headers)
 
-    filas = (
-        await db_session.scalars(
-            select(Telemetria).where(Telemetria.punto_id == estacion_y_punto.punto.id)
-        )
-    ).all()
-    assert len(filas) >= 1
+    assert len(filas) >= 1, f"No se genero ninguna lectura tras esperar {TIMEOUT_SEGUNDOS}s"
     for fila in filas:
         assert fila.nivel_alerta is not None
         assert fila.gas_corregido is not None

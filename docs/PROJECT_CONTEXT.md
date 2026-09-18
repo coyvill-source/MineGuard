@@ -1906,6 +1906,40 @@ siguen guardando `origen=sensor` por default, sin necesitar tocarse.
     consola. Usuario de prueba eliminado al terminar; verificado con
     `SELECT COUNT(*)` total que ninguna tabla cambió (cambio de
     frontend puro, sin datos de negocio involucrados).
+- HALLAZGO + DECISIÓN (2026-09-18):
+  `test_genera_lecturas_periodicas_para_puntos_activos`
+  (`tests/test_generador_continuo.py`) falló una vez corriendo la
+  suite completa (75 passed, 1 failed - `assert 0 >= 1`), pero pasó
+  consistente corriendo sola (7/7) y en una segunda corrida completa
+  (76/76) - síntoma clásico de timing frágil bajo carga, no un bug real
+  del generador continuo.
+  - **Causa**: la prueba iniciaba el generador con el intervalo mínimo
+    permitido (5s) y esperaba con un `asyncio.sleep(6.5)` fijo (1.5s de
+    margen) antes de revisar si ya había filas insertadas. Bajo la
+    carga de las otras 75 pruebas corriendo en el mismo proceso, el
+    scheduling del event loop a veces se demoraba más que ese margen
+    fijo, y la prueba revisaba la BD antes de que el bucle de fondo
+    llegara a insertar la primera fila.
+  - **Corrección**: se reemplazó el `sleep` fijo por una **espera
+    activa (poll)** — reintenta la misma consulta cada 0.2s hasta un
+    techo de 15s (3x el intervalo mínimo, margen generoso a propósito)
+    en vez de un único punto de revisión. `_bucle_generador_continuo`
+    ya genera su primer lote casi de inmediato al iniciar (antes de su
+    primer `asyncio.sleep(intervalo_segundos)`, ver
+    `app/api/telemetria.py`), así que en el caso normal el poll
+    resuelve en bien menos de 1s — de hecho la prueba corriendo sola
+    bajó de tener un `sleep(6.5)` fijo a completar en ~1s reales de
+    espera (4.89s totales del archivo completo, que incluye las otras
+    6 pruebas del mismo archivo), sin alargar el caso común y sin
+    depender de adivinar un número de segundos "seguro" bajo cualquier
+    nivel de carga de la máquina.
+  - No se creó ningún mecanismo nuevo de pytest-asyncio ni fixture
+    adicional — el poll es un `while` simple dentro de la prueba misma,
+    usando `asyncio.get_event_loop().time()` para el límite, sin
+    dependencias nuevas.
+  - **Verificación**: suite completa corrida 3 veces seguidas tras el
+    cambio, **76/76 en las 3** (sin fallos intermitentes); además
+    `tests/test_generador_continuo.py` solo, **7/7** en 4.89s.
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.
