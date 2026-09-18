@@ -238,3 +238,17 @@ export function obtenerEstadisticasResumen(token) {
     headers: { Authorization: `Bearer ${token}` },
   })
 }
+
+export function listarUsuarios(token) {
+  return request("/api/usuarios", {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export function actualizarRolUsuario(token, usuarioId, nuevoRol) {
+  return request(`/api/usuarios/${usuarioId}/rol`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ nuevo_rol: nuevoRol }),
+  })
+}

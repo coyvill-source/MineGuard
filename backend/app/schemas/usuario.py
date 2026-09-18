@@ -1,8 +1,9 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.usuario import RolUsuario, TipoDocumento
+from app.models.usuario import MetodoRegistro, RolUsuario, TipoDocumento
 
 
 class UsuarioRegistro(BaseModel):
@@ -53,6 +54,25 @@ class MensajeRespuesta(BaseModel):
 
 class ActualizarRolUsuario(BaseModel):
     nuevo_rol: RolUsuario
+
+
+class UsuarioAdminRespuesta(BaseModel):
+    """Usado solo por GET /api/usuarios (listado para Gestion de Usuarios,
+    rol admin) - deliberadamente NO incluye password_hash, google_id,
+    telefono, tipo_documento ni numero_documento: la pantalla de admin solo
+    necesita lo pedido explicitamente en la tarea (identificar al usuario,
+    su rol, como se registro, cuando), no todo el perfil personal."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
+    nombre: str
+    apellidos: str
+    rol: RolUsuario
+    metodo_registro: MetodoRegistro
+    fecha_creacion: datetime
+    ultimo_acceso: datetime | None
 
 
 class CodigoExchange(BaseModel):

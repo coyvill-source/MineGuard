@@ -13,7 +13,7 @@ function construirOpciones(rol) {
     opciones.push({ id: "aprobaciones", etiqueta: "Aprobaciones", habilitado: false })
   }
   if (rol === "admin") {
-    opciones.push({ id: "usuarios", etiqueta: "Gestión de Usuarios", habilitado: false })
+    opciones.push({ id: "usuarios", etiqueta: "Gestión de Usuarios", to: "/gestion-usuarios", habilitado: true })
   }
 
   return opciones

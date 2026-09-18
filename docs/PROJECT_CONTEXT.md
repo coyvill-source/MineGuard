@@ -1743,6 +1743,141 @@ siguen guardando `origen=sensor` por default, sin necesitar tocarse.
     errores de consola. Usuario de prueba eliminado al terminar;
     verificado con `SELECT COUNT(*)` total que ninguna tabla cambió
     (endpoint de solo lectura). 76/76 pruebas de backend en verde.
+- DECISIÓN (2026-09-18): pantalla "Gestión de Usuarios" (`/gestion-usuarios`,
+  solo rol Administrador) para cambiar el rol de cualquier usuario. El
+  backend de cambio de rol (`PATCH /api/usuarios/{id}/rol`) ya existía;
+  faltaba poder LISTAR usuarios, así que se agregó
+  `GET /api/usuarios` (mismo router `usuarios.py`, rol mínimo admin).
+  - **Backend**: nuevo schema `UsuarioAdminRespuesta` en
+    `schemas/usuario.py` — deliberadamente NO incluye
+    `password_hash`/`google_id`/`telefono`/`tipo_documento`/
+    `numero_documento`, solo los campos pedidos explícitamente (`id,
+    email, nombre, apellidos, rol, metodo_registro, fecha_creacion,
+    ultimo_acceso`) — la pantalla de admin no necesita el resto del
+    perfil personal. `ultimo_acceso` ya se mantenía correctamente
+    (se setea en cada login, password o Google, ver `api/auth.py`/
+    `api/auth_google.py`) — no hizo falta tocar esa lógica, solo
+    exponerla. Verificado con `curl` que la respuesta real no expone
+    `password_hash`.
+  - **Gate de acceso por ROL, no solo por sesión** (nuevo patrón en
+    este proyecto): hasta ahora las demás pantallas solo OCULTABAN
+    opciones del menú según el rol, pero no bloqueaban la URL directa
+    (cualquier usuario autenticado podía navegar a
+    `/puntos-control`/`/alertas` sin importar su rol, porque esas
+    pantallas son legítimamente multi-rol). `GestionUsuarios.jsx` es
+    la primera pantalla exclusiva de UN rol, así que agrega un segundo
+    gate dentro del `children` como función de `DashboardLayout`: si
+    `usuario.rol !== "admin"`, se renderiza una tarjeta "Acceso
+    restringido" en vez del contenido — mismo "look" exacto que ya usa
+    el gate de "Sesión no iniciada" de `DashboardLayout.jsx`
+    (`rounded-2xl bg-white p-8 text-center shadow-lg
+    shadow-mg-navy-900/5`), para que se sienta el mismo mecanismo, solo
+    cambia el mensaje. El header y el menú lateral se mantienen
+    visibles (a diferencia del gate de sesión, que reemplaza toda la
+    pantalla) porque el usuario SÍ está autenticado, solo no autorizado
+    para esta sección en particular — puede navegar a otra pantalla sin
+    problema. Se distingue explícitamente el estado "`usuario` aún no
+    cargó" (muestra "Cargando...") de "`usuario.rol` no es admin"
+    (muestra el acceso restringido) para no mostrar el mensaje de
+    rechazo por un instante a un Administrador legítimo mientras
+    `me(token)` todavía está en vuelo.
+  - **Tabla de usuarios**: mismo patrón exacto de
+    `TablaPuntosControl.jsx` (`rounded-2xl border border-mg-surface-100`,
+    `thead` con `text-xs font-semibold tracking-wide
+    text-mg-navy-700/70 uppercase`). Columnas: Correo, Nombre, Método
+    de registro ("Correo y contraseña"/"Google"), Registrado, Último
+    acceso (`"Nunca"` si `ultimo_acceso` es `null` — ocurre con
+    cuentas creadas pero que nunca iniciaron sesión), Rol.
+  - **Badge de rol**: 3 niveles, ninguno reutiliza la paleta semáforo
+    (mg-safe/mg-alert/mg-danger, ya reservada para nivel_alerta) —
+    Trabajador en `bg-slate-200 text-slate-600` (mismo tono exacto ya
+    usado para "Inactivo" en `TablaPuntosControl.jsx`), Supervisor HSE
+    en `bg-mg-accent-500/10 text-mg-accent-600` (color de marca),
+    Administrador en `bg-purple-100 text-purple-700` (mismo tono exacto
+    ya usado para el badge "muteada" en `TablaAlertas.jsx`). Etiquetas
+    ("Trabajador"/"Supervisor HSE"/"Administrador") copiadas del mapeo
+    `ROL_ETIQUETA` ya usado en `CabeceraDashboard.jsx` (privado a ese
+    archivo, se repitió el mismo texto en vez de exportarlo desde un
+    componente de layout no relacionado).
+  - **Cambiar rol, con confirmación explícita**: click en "Cambiar rol"
+    abre un `<select>` inline en la misma fila (mismo patrón de edición
+    inline ya usado en `TablaPuntosControl.jsx`/`TablaAlertas.jsx`, sin
+    modal aparte) con los 3 roles, más botones "Confirmar"/"Cancelar".
+    "Confirmar" queda deshabilitado si el rol seleccionado es igual al
+    actual (evita una llamada sin cambios reales). Se consideró un
+    tercer paso de confirmación tipo "¿Seguro?" pero se descartó:
+    abrir el editor + elegir un valor de 3 opciones + click explícito
+    en "Confirmar" ya es una acción deliberada de varios pasos (mismo
+    nivel de fricción que "Rechazar solicitud" o "Resolver alerta" en
+    el resto de la app, que tampoco tienen un segundo diálogo de
+    confirmación) - un tercer paso habría sido fricción extra sin
+    precedente en el resto del proyecto.
+  - **Caso límite señalado, no resuelto por su cuenta**: un
+    Administrador puede cambiar su PROPIO rol (incluido degradarse a
+    sí mismo) — el backend no lo impide y no se agregó una restricción
+    nueva en el frontend sin que se pidiera explícitamente (regla de
+    "ante ambigüedad de una regla de negocio, preguntar antes de
+    asumir" - esto afecta permisos). Si un admin se autodegrada,
+    pierde acceso a esta misma pantalla en su próxima carga de
+    `usuario`. Señalado aquí para que el usuario confirme si quiere
+    una restricción explícita en una tarea futura.
+  - `MenuLateral.jsx`: "Gestión de Usuarios" pasó de deshabilitada
+    (`habilitado: false`, sin `to`) a habilitada apuntando a
+    `/gestion-usuarios` — sigue apareciendo solo para `rol === "admin"`
+    (esa condición ya existía, no se tocó).
+  - Nuevas funciones `listarUsuarios`/`actualizarRolUsuario` en
+    `src/lib/api.js` y hook `useUsuarios.js` (mismo patrón exacto de
+    `usePuntosControl.js` — fetch al montar + `recargar()`, sin
+    polling), mismo patrón que el resto del proyecto.
+  - Verificado en navegador real: como Trabajador, "Gestión de
+    Usuarios" no aparece en el menú lateral, y navegar directo a
+    `/gestion-usuarios` (simulado con `history.pushState` +
+    `popstate` para probar la navegación SPA real sin perder la sesión
+    en memoria, no una recarga completa) muestra "Acceso restringido"
+    con el header/menú intactos. Como Administrador: la tabla mostró
+    los usuarios reales existentes (incluida la cuenta real de Google
+    de la usuaria) sin exponer `password_hash`; se cambió el rol de un
+    usuario de prueba de Trabajador a Supervisor HSE, confirmado tanto
+    en el mensaje de éxito en pantalla como con una consulta directa a
+    `mineguard_db`. Sin errores de consola. Los 2 usuarios de prueba
+    (uno para iniciar sesión como admin, otro como objetivo del cambio
+    de rol) se eliminaron al terminar; verificado con `SELECT COUNT(*)`
+    total que las demás tablas no cambiaron. 76/76 pruebas de backend
+    en verde.
+- DECISIÓN (2026-09-18): un Administrador NO puede cambiar su propio
+  rol — debe pedirle a otro administrador que lo haga. Evita que se
+  autodegrade por error y pierda acceso a `/gestion-usuarios`, o que
+  quede como único admin y termine bloqueándose a sí mismo sin nadie
+  más que pueda revertirlo.
+  - **Backend**: `PATCH /api/usuarios/{usuario_id}/rol` valida
+    `usuario_id == admin_actual.id` (el admin ya autenticado por
+    `requiere_rol`, sin consulta extra a la BD) ANTES de tocar la
+    base de datos — responde `403 Forbidden` con detalle explícito:
+    "No puedes cambiar tu propio rol, pídele a otro administrador que
+    lo haga." El parámetro de la dependencia de rol pasó de
+    `_admin_actual` (no usado, solo el efecto de `requiere_rol`) a
+    `admin_actual` (ahora sí se lee su `.id`).
+  - **Frontend** (`GestionUsuarios.jsx`): la fila del usuario
+    actualmente autenticado (`usuario.id === usuarioActualId`, prop
+    nueva que baja desde el gate de admin de la propia página, que ya
+    tenía el `usuario` completo vía `DashboardLayout`) no muestra el
+    botón "Cambiar rol" — en su lugar, un texto atenuado "Tu cuenta"
+    con `title` explicando el motivo al pasar el mouse. Se oculta el
+    control por completo (no solo deshabilitado) para que sea obvio de
+    un vistazo por qué esa fila es distinta, sin depender de que el
+    usuario intente el cambio y reciba el 403 del backend.
+  - Verificado con `curl` directo al backend: `PATCH
+    /api/usuarios/{propio_id}/rol` responde 403 con el mensaje exacto;
+    `PATCH /api/usuarios/{otro_id}/rol` con el mismo token responde 200
+    y aplica el cambio normalmente. Verificado en navegador real: la
+    fila propia del admin de prueba muestra "Tu cuenta" en vez de
+    "Cambiar rol" (sin control que intentar); se cambió el rol de OTRO
+    usuario de prueba desde la UI (Supervisor HSE → Trabajador) y se
+    confirmó con el mensaje de éxito en pantalla, ambos casos visibles
+    en la misma captura. Sin errores de consola. 76/76 pruebas de
+    backend en verde. Los 2 usuarios de prueba (admin de prueba +
+    objetivo del cambio) se eliminaron al terminar; verificado con
+    `SELECT COUNT(*)` total que las demás tablas no cambiaron.
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.
