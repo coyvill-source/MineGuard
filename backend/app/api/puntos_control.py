@@ -218,6 +218,7 @@ async def obtener_estado_actual(
             id=punto.id,
             estacion_id=punto.estacion_id,
             nombre_estacion=punto.nombre_estacion,
+            estacion_nombre=punto.estacion_nombre,
             coord_x=punto.coord_x,
             coord_y=punto.coord_y,
             coord_z=punto.coord_z,

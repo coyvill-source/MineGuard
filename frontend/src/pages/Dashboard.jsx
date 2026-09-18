@@ -1,5 +1,6 @@
 import DashboardLayout from "../components/dashboard/DashboardLayout"
 import ErrorBoundary from "../components/ErrorBoundary"
+import GraficoHistorial from "../components/dashboard/GraficoHistorial"
 import PlanoPuntosControl from "../components/dashboard/PlanoPuntosControl"
 import { useAuth } from "../context/AuthContext"
 import { useEstadoActual } from "../hooks/useEstadoActual"
@@ -108,6 +109,10 @@ function Dashboard() {
               <PlanoPuntosControl puntos={puntos} />
             </ErrorBoundary>
           </div>
+
+          <ErrorBoundary>
+            <GraficoHistorial puntos={puntos} token={token} />
+          </ErrorBoundary>
         </>
       )}
     </DashboardLayout>

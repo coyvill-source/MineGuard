@@ -1,6 +1,5 @@
 import { useState } from "react"
 import DashboardLayout from "../components/dashboard/DashboardLayout"
-import GraficoHistorial from "../components/puntos-control/GraficoHistorial"
 import ModalProponerCambio from "../components/puntos-control/ModalProponerCambio"
 import ModalPuntoDirecto from "../components/puntos-control/ModalPuntoDirecto"
 import SeccionSolicitudesPendientes from "../components/puntos-control/SeccionSolicitudesPendientes"
@@ -126,8 +125,6 @@ function ContenidoPuntosControl({ token, rol, puntos, isLoading, error, recargar
           onCambio={manejarCambioSolicitud}
         />
       )}
-
-      <GraficoHistorial puntos={puntos} token={token} />
 
       {modalDirecto && (
         <ModalPuntoDirecto

@@ -1489,6 +1489,74 @@ siguen guardando `origen=sensor` por default, sin necesitar tocarse.
     izquierdo reescala). Sin errores de consola. Usuario de prueba
     eliminado al terminar; verificado con `SELECT COUNT(*)` total que
     ninguna tabla cambió (endpoint de solo lectura).
+- DECISIÓN (2026-09-18): `GraficoHistorial.jsx` se **movió** de la
+  pantalla de Puntos de Control a la de Plano
+  (`frontend/src/pages/Dashboard.jsx`), debajo de
+  `PlanoPuntosControl` — hallazgo de pruebas manuales: tiene más
+  sentido de UX verlo junto a la visualización principal (el plano)
+  que en la pantalla de administración de puntos. Solo vive en Plano
+  ahora, no en ambas pantallas.
+  - **Archivo movido** de `components/puntos-control/GraficoHistorial.jsx`
+    a `components/dashboard/GraficoHistorial.jsx` — sigue la misma
+    convención ya establecida del proyecto de organizar componentes
+    por la pantalla que los usa (`components/dashboard/*`,
+    `components/puntos-control/*`, `components/alertas/*`), no solo
+    se cambió el import.
+  - **Fuente de `puntos` cambiada, sin duplicar la carga**: en
+    `PuntosControl.jsx` recibía `puntos` de `usePuntosControl` (`GET
+    /api/puntos-control`, trae activos **e inactivos**, por eso el
+    componente filtraba `.activo` en el frontend). En `Dashboard.jsx`
+    recibe `puntos` de `useEstadoActual` (`GET
+    /api/puntos-control/estado-actual`), que ya solo devuelve puntos
+    con `activo=true` — el filtro de la consulta (`WHERE
+    PuntoControl.activo.is_(True))`) vive en el backend
+    (`obtener_estado_actual`). El componente ya NO filtra `.activo`
+    por su cuenta (se quitó el `useMemo`/`puntosActivos` interno) — la
+    lista que recibe como prop ya es exactamente la elegible, sin
+    necesitar repetir esa lógica en el frontend.
+  - **Backend — campo `estacion_nombre` agregado a
+    `PuntoControlEstadoActual`** (`schemas/punto_control.py` +
+    `obtener_estado_actual` en `api/puntos_control.py`): faltaba en
+    este schema (solo `PuntoControlRespuesta`, el de `GET
+    /api/puntos-control`, ya lo tenía desde la DECISIÓN del dropdown
+    de editar/eliminar). Reutiliza la misma property `estacion_nombre`
+    ya definida en el modelo `PuntoControl` (relación `estacion` con
+    `lazy="selectin"`) — sin lógica nueva, solo se expone el campo que
+    ya existía en el ORM. Necesario porque el `<select>` de "Punto de
+    control" del gráfico usa el formato "Punto X - Estación Y" ya
+    unificado en el resto de la app, y ese formato depende de
+    `estacion_nombre`.
+  - `Dashboard.jsx`: `<GraficoHistorial puntos={puntos} token={token}
+    />` se agregó justo debajo del `<div>` que envuelve
+    `PlanoPuntosControl`, dentro del mismo bloque condicional (solo se
+    muestra tras una carga exitosa de `useEstadoActual`, igual que el
+    plano) y envuelto en el mismo `<ErrorBoundary>` que ya protegía al
+    plano — mismo patrón defensivo, sin uno nuevo. `token` ya estaba
+    disponible en `Dashboard()` vía `useAuth()` (usado para el propio
+    `useEstadoActual`), no hizo falta traerlo de ningún lado nuevo.
+  - `PuntosControl.jsx`: se quitó el import y el `<GraficoHistorial
+    .../>` — el resto de la pantalla (tabla, solicitudes pendientes,
+    modales de crear/editar/proponer) no cambió.
+  - Verificado en navegador real (usuario trabajador de prueba): el
+    gráfico aparece debajo del plano en `/dashboard`, con el mismo
+    dropdown de 7 puntos activos (mismo formato "Punto X - Estación
+    Chicamocha"), selector de fechas funcional (ampliar el rango trae
+    más lecturas), checkboxes funcionando igual que antes (desmarcar
+    "Batería" oculta la línea y reescala el eje), tooltip funcional.
+    En `/puntos-control` la sección "Histórico de lecturas" ya no
+    aparece en absoluto — la página termina después de la tabla (y de
+    "Solicitudes pendientes" para roles gestores). Sin errores de
+    consola. 76/76 pruebas de backend en verde tras el cambio de
+    schema. Usuario de prueba eliminado al terminar; verificado con
+    `SELECT COUNT(*)` total que ninguna tabla cambió.
+  - **Nota de seguridad, no relacionada con el código**: durante esta
+    verificación, el formulario de login autocompletó automáticamente
+    (sin que se escribiera nada) credenciales guardadas de una cuenta
+    real (`supervisor1@gmail.com`) al cargar la página - comportamiento
+    del navegador (autofill/gestor de contraseñas de Chrome), no de la
+    app. No se usaron esas credenciales; se limpió el formulario y se
+    escribió la cuenta de prueba antes de enviar. Vale la pena revisar
+    por qué ese perfil de Chrome tiene esa contraseña guardada.
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.

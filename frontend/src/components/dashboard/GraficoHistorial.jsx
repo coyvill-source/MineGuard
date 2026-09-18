@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import {
   CartesianGrid,
   Line,
@@ -64,11 +64,14 @@ function formatearFechaTooltip(iso) {
   return new Date(iso).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })
 }
 
-// Reutiliza los puntos ya cargados por PuntosControl.jsx (mismo patron que
-// ModalProponerCambio/ModalReportarAlerta: no vuelve a pedirlos al backend).
+// Reutiliza los puntos ya cargados por Dashboard.jsx vía useEstadoActual
+// (GET /api/puntos-control/estado-actual) - no vuelve a pedirlos al backend.
+// Ese endpoint ya filtra activo=true en la consulta (ver
+// obtener_estado_actual en puntos_control.py), así que a diferencia de los
+// selectores de puntos-control (que sí filtran `.activo` en el frontend
+// porque su endpoint trae activos e inactivos) aquí no hace falta filtrar
+// de nuevo - `puntos` ya es exactamente la lista elegible.
 function GraficoHistorial({ puntos, token }) {
-  const puntosActivos = useMemo(() => puntos.filter((p) => p.activo), [puntos])
-
   const [puntoControlId, setPuntoControlId] = useState("")
   const [rango, setRango] = useState(rangoPorDefecto)
   // Las 4 variables visibles por defecto ("el usuario decide cuales ver a
@@ -87,10 +90,10 @@ function GraficoHistorial({ puntos, token }) {
   const [consultado, setConsultado] = useState(false)
 
   useEffect(() => {
-    if (puntoControlId === "" && puntosActivos.length > 0) {
-      setPuntoControlId(String(puntosActivos[0].id))
+    if (puntoControlId === "" && puntos.length > 0) {
+      setPuntoControlId(String(puntos[0].id))
     }
-  }, [puntosActivos, puntoControlId])
+  }, [puntos, puntoControlId])
 
   useEffect(() => {
     if (!puntoControlId || !rango.desde || !rango.hasta) return
@@ -142,7 +145,7 @@ function GraficoHistorial({ puntos, token }) {
   const hayEjeIzquierdo = variablesActivas.some((v) => v.eje === "izquierda")
 
   return (
-    <div className="mt-8 rounded-2xl border border-mg-surface-100 bg-white p-4 shadow-lg shadow-mg-navy-900/5 sm:p-6">
+    <div className="mt-6 rounded-2xl border border-mg-surface-100 bg-white p-4 shadow-lg shadow-mg-navy-900/5 sm:p-6">
       <h2 className="text-lg font-semibold text-mg-navy-900">Histórico de lecturas</h2>
       <p className="mt-1 text-sm text-mg-navy-700">
         Selecciona un punto de control y un rango de fechas para ver su comportamiento en el tiempo.
@@ -157,11 +160,11 @@ function GraficoHistorial({ puntos, token }) {
             id="hist-punto"
             value={puntoControlId}
             onChange={(evento) => setPuntoControlId(evento.target.value)}
-            disabled={puntosActivos.length === 0}
+            disabled={puntos.length === 0}
             className="mt-1.5 rounded-lg border border-mg-surface-100 bg-mg-surface-50 px-4 py-2.5 text-sm text-mg-navy-900 outline-none transition focus:border-mg-accent-500 focus:ring-2 focus:ring-mg-accent-300"
           >
-            {puntosActivos.length === 0 && <option value="">Sin puntos activos</option>}
-            {puntosActivos.map((punto) => (
+            {puntos.length === 0 && <option value="">Sin puntos activos</option>}
+            {puntos.map((punto) => (
               <option key={punto.id} value={punto.id}>
                 Punto {punto.nombre_estacion} - {punto.estacion_nombre}
               </option>
@@ -230,7 +233,7 @@ function GraficoHistorial({ puntos, token }) {
       </fieldset>
 
       <div className="mt-6">
-        {puntosActivos.length === 0 ? (
+        {puntos.length === 0 ? (
           <p className="rounded-lg border border-dashed border-mg-surface-100 bg-mg-surface-50 px-4 py-6 text-center text-sm text-mg-navy-700">
             No hay puntos de control activos para mostrar.
           </p>
