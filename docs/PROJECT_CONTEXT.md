@@ -2840,3 +2840,46 @@ duplicaciones y corrupción de contenido en el pasado.
     aserción en ninguna de las dos corridas completas. Pendiente
     investigar si se vuelve más frecuente o empieza a causar fallos
     reales.
+
+## Hoja de ruta — Integración con red de sensores WSN real (trabajo a futuro)
+
+Hoy el sistema opera con datos simulados (generador aleatorio bajo
+demanda, generador continuo, ingesta por archivo Excel, lectura
+manual) porque la red física de sensores WSN aún no está instalada en
+ninguna mina. La arquitectura ya está preparada para conectar sensores
+reales sin rediseño - todos los modos de ingesta ya comparten el mismo
+pipeline interno (escalado, inferencia ML, corrección, clasificación
+de umbral).
+
+Requisitos para la integración futura:
+
+1. Físicos (fuera del alcance de este software):
+   - Instalación de sensores físicos en los puntos de control, con su
+     protocolo de comunicación (ej. LoRaWAN, Zigbee, NB-IoT).
+   - Un gateway/concentrador que traduzca las señales de los sensores
+     a datos enviables por red.
+   - Conectividad del gateway hacia el servidor de MineGuard.
+
+2. Técnicos nuevos en el backend (trabajo pequeño, reutiliza todo lo
+   existente):
+   - Nuevo endpoint de ingesta (ej. POST /api/telemetria/ingesta-sensor-real)
+     que reciba los datos del gateway y llame a la misma función
+     compartida del pipeline ML ya usada por los otros 4 modos.
+   - Autenticación de máquina a máquina (API key fija por dispositivo,
+     distinta del JWT de usuarios humanos).
+   - Tabla/campo de mapeo entre el identificador de fábrica de cada
+     sensor físico y el PuntoControl correspondiente en la BD.
+
+3. Validaciones pendientes antes de producción real con sensores:
+   - Obtener el StandardScaler original de entrenamiento del modelo
+     (hoy se usa uno derivado localmente como aproximación temporal).
+   - Validar en campo, con el primer sensor real instalado, que la
+     conversión ppm→% de metano coincide con un medidor certificado
+     (la fórmula ya está implementada y probada con datos históricos,
+     pero no verificada aún contra un sensor físico real).
+
+Camino sugerido: (1) definir protocolo/formato con el
+fabricante/instalador de sensores, (2) construir el endpoint adaptador
++ autenticación de dispositivo, (3) piloto con 1 sensor real,
+validando contra medición certificada, (4) escalar a los puntos de
+control completos.
