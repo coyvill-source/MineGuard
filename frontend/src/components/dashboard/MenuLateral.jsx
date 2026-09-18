@@ -9,9 +9,6 @@ function construirOpciones(rol) {
     { id: "estadisticas", etiqueta: "Estadísticas", to: "/estadisticas", habilitado: true },
   ]
 
-  if (rol === "supervisor" || rol === "admin") {
-    opciones.push({ id: "aprobaciones", etiqueta: "Aprobaciones", habilitado: false })
-  }
   if (rol === "admin") {
     opciones.push({ id: "usuarios", etiqueta: "Gestión de Usuarios", to: "/gestion-usuarios", habilitado: true })
   }

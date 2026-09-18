@@ -1878,6 +1878,34 @@ siguen guardando `origen=sensor` por default, sin necesitar tocarse.
     backend en verde. Los 2 usuarios de prueba (admin de prueba +
     objetivo del cambio) se eliminaron al terminar; verificado con
     `SELECT COUNT(*)` total que las demás tablas no cambiaron.
+- DECISIÓN (2026-09-18): se eliminó por completo el ítem "Aprobaciones"
+  de `MenuLateral.jsx` (antes visible para Supervisor y Admin, marcado
+  "Próximamente" desde que se agregó el menú lateral). Esa
+  funcionalidad **nunca se va a construir como pantalla separada** — ya
+  existe y vive dentro de "Puntos de Control", sección "Solicitudes
+  pendientes" (`SeccionSolicitudesPendientes.jsx`, visible para
+  Supervisor/Admin en `/puntos-control`, ya construida y probada desde
+  la DECISIÓN de "pantalla completa de Puntos de Control" más arriba).
+  Dejar un ítem "Próximamente" indefinidamente para algo que ya existe
+  en otro lugar era confuso, no una funcionalidad pendiente real.
+  - Se quitó únicamente el `opciones.push({ id: "aprobaciones", ... })`
+    condicionado a `rol === "supervisor" || rol === "admin"` en
+    `construirOpciones()`. No se tocó el resto de la lógica del menú
+    (el ítem de "Gestión de Usuarios", condicionado solo a `rol ===
+    "admin"`, sigue igual) ni el componente `ItemMenu` — su rama para
+    ítems deshabilitados (`!opcion.habilitado`, con la etiqueta
+    "Próximamente") se dejó intacta porque es infraestructura genérica
+    reutilizable para un futuro ítem pendiente real, no algo exclusivo
+    de "Aprobaciones"; hoy simplemente no la usa ningún ítem.
+  - Verificado en navegador real en los 3 roles (usuario de prueba
+    promovido vía SQL, mismo patrón ya usado en tareas anteriores):
+    Trabajador ve Plano/Puntos de Control/Alertas/Estadísticas;
+    Supervisor HSE ve lo mismo (sin "Gestión de Usuarios", que sigue
+    siendo solo-admin); Administrador ve además "Gestión de Usuarios"
+    — "Aprobaciones" no aparece en ningún caso. Sin errores de
+    consola. Usuario de prueba eliminado al terminar; verificado con
+    `SELECT COUNT(*)` total que ninguna tabla cambió (cambio de
+    frontend puro, sin datos de negocio involucrados).
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.
