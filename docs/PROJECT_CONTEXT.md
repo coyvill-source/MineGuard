@@ -1707,3 +1707,163 @@ duplicaciones y corrupción de contenido en el pasado.
   (`TablaAlertas.jsx`) ya muestra `fecha_creacion` formateada en una
   columna "Fecha" (mismo formato `toLocaleString("es-CO", ...)` usado
   en `ModalReportarAlerta.jsx`).
+- DECISIÓN (2026-09-18): suite de pruebas automatizadas (`pytest`) en
+  `backend/tests/`, pensada para dar confianza antes del despliegue a
+  producción. Documentación de pytest/pytest-asyncio consultada vía
+  context7 antes de diseñar (nota: la red del entorno estuvo caída
+  durante buena parte de esta tarea - ver aviso en el reporte al
+  usuario si el resultado de esa consulta no llegó a completarse).
+  - **Comando para correr toda la suite** (desde `backend/`, con el
+    venv activo y `docker compose up -d` corriendo para tener Postgres
+    disponible en el puerto 5433):
+    ```
+    python -m pytest
+    ```
+    (usa `backend/pytest.ini`: `testpaths = tests`,
+    `asyncio_mode = auto` — ningún test necesita el decorador
+    `@pytest.mark.asyncio` a mano).
+  - **Aislamiento de base de datos (requisito no negociable de la
+    tarea)**: las pruebas NUNCA tocan `mineguard_db`. Corren contra
+    `mineguard_test_db`, una base de datos SEPARADA en el MISMO
+    contenedor/servidor Postgres que ya levanta `docker-compose.yml`
+    (mismo puerto 5433) — Postgres aísla bases de datos como espacios
+    completamente independientes. `backend/tests/conftest.py` la
+    recrea desde cero (`DROP DATABASE ... WITH (FORCE)` +
+    `CREATE DATABASE`) al inicio de cada corrida de la suite, y arma
+    el esquema con `Base.metadata.create_all()` a partir de los
+    modelos ORM actuales (no vía `alembic upgrade head` — trade-off
+    consciente: las pruebas verifican que el código y los modelos de
+    HOY funcionan juntos, no la cadena de migraciones en sí). Se eligió
+    una base de datos separada en el mismo contenedor, en vez de un
+    contenedor Postgres nuevo, por ser más liviano (sin un segundo
+    servicio/puerto/volumen que mantener) — el enunciado de la tarea
+    ofrecía esta alternativa explícitamente.
+  - **Cómo se logra el aislamiento a nivel de código**: `conftest.py`
+    pisa `os.environ["DATABASE_URL"]` (apuntando a
+    `mineguard_test_db`) ANTES de importar cualquier módulo `app.*` —
+    `app/core/config.py` computa `settings = get_settings()` una sola
+    vez al importarse (`@lru_cache`), así que si el import real
+    ocurriera antes de pisar la variable, la URL de producción ya
+    habría quedado fija. `conftest.py` es el primer lugar de todo el
+    proceso de pruebas donde se importa código de `app`, así que es
+    seguro. El backend real (`uvicorn`, puerto 8000) corre en un
+    proceso del SO totalmente separado — las variables de entorno de
+    un proceso de pytest nunca afectan a otro proceso ya corriendo.
+  - **Aislamiento entre pruebas**: todas las tablas se truncan
+    (`TRUNCATE ... RESTART IDENTITY CASCADE`) después de cada prueba
+    (fixture `autouse`) — cada prueba empieza con la BD vacía. El
+    cache en memoria del `ModeloML` activo
+    (`app/api/telemetria.py::_modelo_activo_cache`, ver DECISIÓN
+    2026-09-13 más arriba) es a nivel de proceso, no de BD, así que la
+    misma fixture lo limpia explícitamente entre pruebas — de lo
+    contrario la primera prueba que registrara un `ModeloML`
+    "contaminaría" a todas las siguientes con un modelo ya truncado de
+    la BD.
+  - **Fixtures clave** (`conftest.py`): `client` (httpx.AsyncClient
+    sobre la app FastAPI vía `ASGITransport`, sin necesitar un servidor
+    uvicorn corriendo — más rápido y no compite por el puerto 8000 con
+    el servidor real de desarrollo), `db_session` (para que las
+    pruebas siembren/verifiquen datos por fuera de la API, ej. leer un
+    `PasswordResetToken`), `usuario_trabajador`/`usuario_supervisor`/
+    `usuario_admin` (cada uno ya autenticado, con `.token` y
+    `.headers` listos para usar), `estacion_y_punto` (una `Estacion` +
+    un `PuntoControl` de prueba), `modelo_ml_activo` (registra el
+    `ModeloML` activo apuntando a los `.joblib` REALES del proyecto —
+    mismas rutas que usa `app/scripts/seed_modelo_ml.py` — nunca un
+    mock del modelo).
+  - **Qué cubre cada archivo**:
+    - `test_auth.py`: registro (éxito, rol siempre trabajador aunque
+      se envíe otro, email duplicado 409, documento duplicado 409),
+      login (éxito, password incorrecta 401, email inexistente 401),
+      `/me` (con/sin/token inválido), ciclo completo
+      forgot-password→reset-password (incluye que el password viejo
+      deja de sevir y el nuevo funciona), reset con token
+      inexistente/expirado/ya usado.
+    - `test_permisos.py`: por cada endpoint protegido por rol (cambio
+      de rol, CRUD directo de puntos de control, solicitudes de
+      cambio, gestión de alertas, generador continuo) — rol
+      insuficiente → 403, rol mínimo requerido → funciona de verdad
+      (no solo "no 403").
+    - `test_ingesta_y_ml.py`: ingesta por archivo con un CSV pequeño
+      de prueba (3 filas válidas + 2 inválidas a propósito, verifica
+      el conteo exacto de `filas_descartadas`), ingesta aleatoria
+      (verifica que `gas_corregido == gas_crudo + error_predicho` y
+      que `nivel_alerta` coincide con volver a correr
+      `clasificar_nivel_alerta` sobre el mismo porcentaje — confirma
+      que el endpoint usa el motor real, no un valor fijo), y pruebas
+      unitarias paramétricas de `app/core/umbrales.py` en los 3
+      límites exactos del Decreto 1886 (0.9% y 1.5%, incluyendo los
+      valores justo antes/después de cada límite).
+    - `test_puntos_control.py`: CRUD directo, soft-delete (la fila NO
+      se borra, solo `activo=False`, y desaparece de
+      `/estado-actual` pero sigue en `GET /{id}`), flujo completo de
+      solicitud para los 3 tipos (crear/editar/eliminar) con
+      aprobación real verificando que el cambio se aplicó de verdad
+      en la BD, rechazo verificando que el cambio NO se aplicó, y que
+      una solicitud ya revisada no se puede volver a aprobar (409).
+    - `test_alertas.py`: crear, duplicado (409) para la misma
+      telemetría, mutear/escalar/resolver, resolver sin observación
+      (422 de Pydantic, `AlertaResolver.observacion_hse` es
+      obligatorio), resolver dos veces (409), mutear una ya resuelta
+      (409).
+    - `test_generador_continuo.py`: iniciar, estado refleja intervalo
+      e `iniciado_en`, iniciar dos veces sin detener (409), intervalo
+      menor al mínimo (422), detener sin nada corriendo (409), y una
+      prueba que de verdad espera un intervalo real (mínimo 5s) y
+      confirma en la BD que se insertaron lecturas — no solo el
+      estado "corriendo". Fixture propia `autouse` que cancela
+      cualquier tarea de fondo huérfana después de cada prueba de este
+      archivo (si una prueba falla antes de llamar a `/detener`, la
+      tarea de `asyncio` seguiría corriendo en el proceso de pytest y
+      podría chocar con la BD ya truncada de la siguiente prueba).
+  - **Dependencias**: `pytest` y `pytest-asyncio` en
+    `backend/requirements-dev.txt` NUEVO (no en `requirements.txt`) —
+    convención elegida: dependencias de solo-desarrollo/pruebas
+    separadas de las de producción, para no instalarlas en el
+    despliegue real. `httpx` y `asyncpg` (los usan las pruebas
+    también) ya estaban en `requirements.txt` desde antes (Authlib),
+    así que `requirements-dev.txt` los reutiliza vía
+    `-r requirements.txt` en vez de duplicarlos.
+  - **Fuera de alcance explícito de esta suite** (no pedido en la
+    tarea): el flujo de Google OAuth (`/api/auth/google/*`,
+    `/api/auth/exchange`) no tiene pruebas automatizadas — requiere
+    consentimiento humano real en el navegador de Google, no se puede
+    automatizar de forma segura ni con mocks sin perder buena parte
+    del valor de la prueba (ya se verificó manualmente en las tareas
+    de esa fase). Tampoco hay pruebas de carga/concurrencia real más
+    allá de la lógica de negocio.
+  - **Resultado de la corrida completa (verificado, no asumido)**:
+    `76 passed, 0 failed` (`python -m pytest -v`, ~46-49s). Corrida dos
+    veces seguidas con el mismo resultado exacto (76/76) para confirmar
+    que no es un pase casual — ver el output completo en el reporte de
+    esta tarea al usuario.
+  - **Bug real encontrado y corregido durante esta tarea** (no en el
+    código de producción, sino en el diseño inicial de la propia
+    suite): el primer intento de correr la suite completa falló casi
+    en su totalidad (`9 failed, 132 errors`) con
+    `sqlalchemy.exc.InterfaceError` / `Task attached to a different
+    loop`. Causa: `_motor_bd_pruebas` (el engine de SQLAlchemy) estaba
+    declarado con `scope="session"` como fixture ASYNC — sus
+    conexiones quedaban atadas al event loop del PRIMER test que lo
+    usó, pero `pytest-asyncio` en modo `auto` crea un event loop NUEVO
+    por cada test (scope `function` por defecto); el segundo test en
+    adelante intentaba reusar un engine "de otro loop" y reventaba.
+    **Fix**: se separó la preparación de la BD (recrear +
+    `Base.metadata.create_all()`) en una fixture SÍNCRONA de sesión
+    (`_bd_de_pruebas_lista`, `@pytest.fixture` normal, no
+    `pytest_asyncio.fixture`) que corre su propio `asyncio.run()`
+    aislado una sola vez al inicio - y `_motor_bd_pruebas` pasó a ser
+    una fixture async de scope `function` (un engine nuevo y barato
+    por prueba, dentro del loop propio de esa prueba). También se fijó
+    `asyncio_default_fixture_loop_scope = function` en `pytest.ini`
+    (antes quedaba implícito, con un `PytestDeprecationWarning`
+    avisando que el comportamiento por defecto cambiará en una futura
+    versión de `pytest-asyncio`).
+  - **Advertencia benigna conocida, no investigada más a fondo**: en
+    ambas corridas apareció una vez (en una prueba distinta cada vez)
+    `RuntimeWarning: coroutine 'Connection._cancel' was never
+    awaited`, de `asyncpg` - parece timing de garbage collection al
+    cerrar conexiones entre pruebas, no causó ningún fallo de
+    aserción en ninguna de las dos corridas completas. Pendiente
+    investigar si se vuelve más frecuente o empieza a causar fallos
+    reales.

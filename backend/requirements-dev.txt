@@ -1,0 +1,7 @@
+# Dependencias SOLO para desarrollo/pruebas (no se instalan en producción).
+# httpx y asyncpg ya están en requirements.txt (los usa Authlib y la app en
+# general) - se reutilizan aquí para las pruebas, no se duplican.
+-r requirements.txt
+
+pytest>=8.3,<8.4
+pytest-asyncio>=0.24,<0.25
