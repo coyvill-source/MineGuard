@@ -21,7 +21,7 @@ from app.core.permissions import requiere_rol
 from app.core.umbrales import clasificar_nivel_alerta, ppm_a_porcentaje
 from app.models.modelo_ml import ModeloML
 from app.models.punto_control import PuntoControl
-from app.models.telemetria import EstadoValidacion, NivelAlerta, Telemetria
+from app.models.telemetria import EstadoValidacion, NivelAlerta, OrigenLectura, Telemetria
 from app.models.usuario import RolUsuario, Usuario
 from app.schemas.telemetria import (
     GeneradorContinuoIniciarSolicitud,
@@ -29,6 +29,8 @@ from app.schemas.telemetria import (
     IngestaAleatoriaRespuesta,
     IngestaAleatoriaSolicitud,
     IngestaArchivoRespuesta,
+    LecturaManualRespuesta,
+    LecturaManualSolicitud,
     TelemetriaResumen,
 )
 from app.schemas.usuario import MensajeRespuesta
@@ -300,6 +302,81 @@ async def ingesta_aleatoria(
     return IngestaAleatoriaRespuesta(
         filas_generadas=datos.cantidad,
         punto_control_id=datos.punto_control_id,
+    )
+
+
+@router.post("/lectura-manual", response_model=LecturaManualRespuesta, status_code=status.HTTP_201_CREATED)
+async def lectura_manual(
+    datos: LecturaManualSolicitud,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _actor: Annotated[Usuario, Depends(requiere_rol(RolUsuario.TRABAJADOR))],
+) -> LecturaManualRespuesta:
+    """Cuarto modo de ingesta: un Trabajador en campo reporta una lectura
+    tomada con un instrumento portatil (no el sensor digital). origen=MANUAL
+    siempre. Si vienen las 3 variables (Temp/Humed/Bateria) completas, corre
+    el mismo pipeline ML compartido (_predecir_correccion) que ingesta-
+    archivo/aleatoria/generador-continuo - sin duplicar esa logica. Si falta
+    alguna, se guarda tal cual (error_predicho/gas_corregido en NULL,
+    nivel_alerta=SIN_CLASIFICAR) - ver DECISION en docs/PROJECT_CONTEXT.md."""
+    punto_control = await db.get(PuntoControl, datos.punto_control_id)
+    if punto_control is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="El punto de control indicado no existe"
+        )
+
+    tiene_las_3_variables = (
+        datos.temperatura is not None and datos.humedad is not None and datos.bateria is not None
+    )
+
+    modelo_id: int | None = None
+    error_predicho = gas_corregido = gas_corregido_porcentaje = None
+    nivel_alerta = NivelAlerta.SIN_CLASIFICAR
+
+    if tiene_las_3_variables:
+        modelo_activo = await _obtener_modelo_activo(db)
+        modelo_id = modelo_activo["id"]
+        error_predicho, gas_corregido, gas_corregido_porcentaje, nivel_alerta = _predecir_correccion(
+            modelo_activo["modelo"],
+            modelo_activo["scaler"],
+            datos.temperatura,
+            datos.humedad,
+            datos.bateria,
+            datos.gas_crudo,
+        )
+
+    telemetria = Telemetria(
+        punto_id=datos.punto_control_id,
+        modelo_id=modelo_id,
+        timestamp=datetime.now(timezone.utc),
+        temperatura=datos.temperatura,
+        humedad=datos.humedad,
+        bateria=datos.bateria,
+        gas_crudo=datos.gas_crudo,
+        error_predicho=error_predicho,
+        gas_corregido=gas_corregido,
+        gas_corregido_porcentaje=gas_corregido_porcentaje,
+        nivel_alerta=nivel_alerta,
+        estado_validacion=EstadoValidacion.VALIDO,
+        origen=OrigenLectura.MANUAL,
+    )
+    db.add(telemetria)
+    await db.commit()
+    await db.refresh(telemetria)
+
+    return LecturaManualRespuesta(
+        id=telemetria.id,
+        punto_control_id=telemetria.punto_id,
+        timestamp=telemetria.timestamp,
+        origen=telemetria.origen,
+        temperatura=telemetria.temperatura,
+        humedad=telemetria.humedad,
+        bateria=telemetria.bateria,
+        gas_crudo=telemetria.gas_crudo,
+        error_predicho=telemetria.error_predicho,
+        gas_corregido=telemetria.gas_corregido,
+        gas_corregido_porcentaje=telemetria.gas_corregido_porcentaje,
+        nivel_alerta=telemetria.nivel_alerta,
+        corregido_por_modelo=tiene_las_3_variables,
     )
 
 

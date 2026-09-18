@@ -217,3 +217,11 @@ export function listarTelemetriasRecientes(token, puntoControlId) {
     headers: { Authorization: `Bearer ${token}` },
   })
 }
+
+export function reportarLecturaManual(token, datos) {
+  return request("/api/telemetria/lectura-manual", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(datos),
+  })
+}

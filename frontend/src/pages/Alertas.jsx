@@ -1,5 +1,6 @@
 import { useState } from "react"
 import ModalReportarAlerta from "../components/alertas/ModalReportarAlerta"
+import ModalReportarLecturaManual from "../components/alertas/ModalReportarLecturaManual"
 import TablaAlertas from "../components/alertas/TablaAlertas"
 import DashboardLayout from "../components/dashboard/DashboardLayout"
 import { useAuth } from "../context/AuthContext"
@@ -17,6 +18,7 @@ function ContenidoAlertas({ token, rol }) {
   const [filtroEstado, setFiltroEstado] = useState("")
   const { alertas, isLoading, error, recargar } = useAlertas(token, filtroEstado || undefined)
   const [modalAbierto, setModalAbierto] = useState(false)
+  const [modalLecturaAbierto, setModalLecturaAbierto] = useState(false)
   const [mensajeExito, setMensajeExito] = useState("")
 
   function manejarExito(mensaje) {
@@ -37,13 +39,22 @@ function ContenidoAlertas({ token, rol }) {
           Bitácora de alertas de la estación. La creación es manual mientras el motor automático de
           umbrales sigue bloqueado (ver aviso en el Plano).
         </p>
-        <button
-          type="button"
-          onClick={() => setModalAbierto(true)}
-          className="shrink-0 rounded-lg bg-mg-accent-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-mg-accent-600"
-        >
-          Reportar alerta
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={() => setModalLecturaAbierto(true)}
+            className="rounded-lg border border-mg-accent-500 px-4 py-2 text-sm font-semibold text-mg-accent-500 transition hover:bg-mg-accent-500/10"
+          >
+            Reportar lectura manual
+          </button>
+          <button
+            type="button"
+            onClick={() => setModalAbierto(true)}
+            className="rounded-lg bg-mg-accent-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-mg-accent-600"
+          >
+            Reportar alerta
+          </button>
+        </div>
       </div>
 
       {mensajeExito && (
@@ -91,6 +102,10 @@ function ContenidoAlertas({ token, rol }) {
 
       {modalAbierto && (
         <ModalReportarAlerta token={token} onCerrar={() => setModalAbierto(false)} onExito={manejarExito} />
+      )}
+
+      {modalLecturaAbierto && (
+        <ModalReportarLecturaManual token={token} onCerrar={() => setModalLecturaAbierto(false)} />
       )}
     </div>
   )

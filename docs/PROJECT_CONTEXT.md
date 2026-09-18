@@ -56,7 +56,7 @@ lectura del sensor de gas.
    — ver la decisión de umbrales en "Pendientes conocidos", deben
    quedar configurables, nunca hardcodeados como constantes fijas.
 
-## Ingesta de datos (3 modos intercambiables)
+## Ingesta de datos (4 modos intercambiables)
 1. **Archivo** (Excel/CSV): columnas Temp, Humed, Ch4, Bateria,
    hora_insertion.
 2. **Aleatorio bajo demanda**: generador sintético con rangos
@@ -66,9 +66,17 @@ lectura del sensor de gas.
    segundo plano a un intervalo configurable, generando una lectura por
    punto de control activo en cada tick, hasta que un admin lo detiene
    — ver DECISIÓN 2026-09-18 más abajo.
+4. **Lectura manual** (Trabajador con instrumento portátil en campo,
+   `POST /api/telemetria/lectura-manual`): Temp/Humed/Bateria
+   opcionales, Gas obligatorio — si las 3 primeras vienen completas
+   corre el mismo pipeline ML compartido, si falta alguna se guarda
+   solo el gas — ver DECISIÓN 2026-09-18 (lectura manual) más abajo.
 
 Toda lectura, sin importar el modo, debe declarar a qué PuntoControl
-pertenece.
+pertenece. Cada fila de `Telemetria` ahora también declara su
+`origen` (`sensor` vs `manual` — ver DECISIÓN 2026-09-18 más abajo);
+los 3 modos automáticos de arriba (archivo/aleatorio/continuo)
+siguen guardando `origen=sensor` por default, sin necesitar tocarse.
 
 ## Pendientes conocidos (no resolver por tu cuenta, preguntar)
 - DECISIÓN (2026-09-12): el StandardScaler no fue entregado por el
@@ -1065,6 +1073,156 @@ pertenece.
     `solicitudes_cambio_punto_control` (2) y `puntos_control` (8) —
     todas de vuelta a la línea base previa a ambas tareas de
     verificación de esta rama.
+- DECISIÓN (2026-09-18, lectura manual): cuarto modo de ingesta —
+  `POST /api/telemetria/lectura-manual` — para cuando un Trabajador en
+  campo mide con un instrumento portátil en vez de depender del
+  sensor digital. Guarda en la misma tabla `Telemetria` que las
+  lecturas automáticas (no se creó tabla ni modelo nuevo), reutilizando
+  el pipeline ML compartido (`_predecir_correccion`, ya usado por
+  ingesta-archivo/aleatoria/generador-continuo) sin duplicar lógica.
+  - **Campo `origen` nuevo en `Telemetria`** (`backend/app/models/telemetria.py`):
+    enum nativo `OrigenLectura` (`SENSOR`/`MANUAL`), `nullable=False`,
+    con default tanto Python-side (`default=OrigenLectura.SENSOR`)
+    como `server_default` — así los 3 modos automáticos existentes
+    (archivo/aleatorio/generador continuo) siguen guardando
+    `origen=SENSOR` sin necesitar tocar ni una línea de sus endpoints,
+    y las filas históricas ya existentes se backfillean a `SENSOR`
+    automáticamente vía el `server_default` de la migración.
+  - **`temperatura`/`humedad`/`bateria` de `Telemetria` pasaron a
+    nullable** (antes `NOT NULL` los 3): una lectura manual solo-gas
+    (el Trabajador no tiene instrumento para esas 3, solo el medidor
+    de gas) debe poder guardarlas en `NULL`. Los 3 modos automáticos
+    siguen llenando siempre las 3 — nunca las mandan en `NULL`.
+  - **`NivelAlerta` ganó un valor nuevo: `SIN_CLASIFICAR`** (valor
+    `"sin_clasificar"`), para cuando faltó alguna de Temp/Humed/Bateria
+    y por lo tanto no corrió el pipeline ML — no hay
+    `gas_corregido_porcentaje` confiable para clasificar contra los
+    umbrales del Decreto 1886. DECISIÓN explícita (la tarea dejaba el
+    criterio abierto): **no se reutilizó `OPTIMO` como placeholder**
+    aquí — ese patrón ya se abandonó a propósito en el motor de
+    umbrales real (ver DECISIÓN 2026-09-15/16 más arriba: "el 100% de
+    las lecturas devuelve 'optimo' como placeholder" era justamente el
+    problema que se corrigió) y reintroducirlo mentiría sobre el
+    estado real de la mina en ese punto. Se comprobó que el único
+    consumidor actual de `nivel_alerta` en el frontend
+    (`PlanoPuntosControl.jsx`, `ESTILO_POR_NIVEL[nivel_alerta] ??
+    ESTILO_SIN_DATOS`) ya cae automáticamente a su estilo gris "Sin
+    datos" ante cualquier valor no mapeado explícitamente — que es
+    exactamente la lectura semántica correcta para "no se pudo
+    clasificar con confianza", sin necesitar tocar ese componente.
+  - **`POST /api/telemetria/lectura-manual`** (rol mínimo trabajador,
+    `backend/app/schemas/telemetria.py`:
+    `LecturaManualSolicitud`/`LecturaManualRespuesta`): body
+    `{punto_control_id, temperatura?, humedad?, bateria?, gas_crudo}`
+    (los 3 primeros nullable, `gas_crudo` siempre obligatorio). Si las
+    3 vienen completas, corre `_obtener_modelo_activo` +
+    `_predecir_correccion` igual que los demás modos (falla 503 si no
+    hay `ModeloML` activo, mismo comportamiento ya existente). Si
+    falta alguna, NO se intenta correr el modelo — guarda
+    `error_predicho`/`gas_corregido`/`gas_corregido_porcentaje` en
+    `NULL`, `modelo_id` en `NULL`, `nivel_alerta=SIN_CLASIFICAR`,
+    `origen=MANUAL`. La respuesta incluye `corregido_por_modelo: bool`
+    — el "campo claro" pedido por la tarea para indicar si hubo
+    corrección de modelo o no (más simple que duplicar el mensaje en
+    texto en dos lugares — el frontend arma el mensaje final a partir
+    de este booleano).
+  - **Migración de Alembic generada, NO aplicada** (pendiente de
+    revisión del usuario):
+    `alembic/versions/0d76e357393a_agregar_origen_a_telemetria_y_permitir_.py`.
+    Autogenerate detectó la columna `origen` nueva y el cambio de
+    nullability de las 3 columnas correctamente, pero **no detecta
+    cambios de VALORES dentro de un enum de Postgres ya existente**
+    (solo columnas/tablas nuevas) — el `ALTER TYPE nivel_alerta ADD
+    VALUE IF NOT EXISTS 'SIN_CLASIFICAR'` se agregó a mano, no aparece
+    en el diff automático de autogenerate.
+    - Aplica el fix ya conocido del bug de Alembic+Enum en Postgres
+      con `op.add_column` sobre tabla existente (visto en
+      `9dd2b7ffdaeb`, documentado más arriba): `origen_lectura_enum`
+      se crea explícito con `checkfirst=True` antes del `add_column`,
+      y la columna usa `create_type=False`.
+    - **Bug encontrado y corregido durante la verificación**: el
+      primer intento uso `server_default=OrigenLectura.SENSOR.value`
+      ("sensor", minúscula) en el modelo, lo que generó
+      `server_default='sensor'` en el autogenerate — pero
+      SQLAlchemy's `Enum` guarda por defecto el **NAME** del miembro
+      Python en la columna nativa de Postgres (`SENSOR`), no su
+      `.value` (confirmado contra `nivel_alerta`/`estado_validacion`
+      ya existentes: `SELECT enumlabel FROM pg_enum` devuelve
+      `'OPTIMO'`/`'ALERTA'`/`'CRITICO'`, no minúsculas). Esto rompía
+      el `CREATE TABLE`/`ALTER` con "invalid input value for enum
+      origen_lectura: sensor" — se detectó porque la suite de pytest
+      (que sí crea el schema real vía `Base.metadata.create_all`)
+      falló con las 76 pruebas en error tras el primer intento.
+      Corregido a `server_default=OrigenLectura.SENSOR.name`
+      ("SENSOR") en el modelo y regenerada la migración. Por la misma
+      razón, `ALTER TYPE ... ADD VALUE` usa `'SIN_CLASIFICAR'`
+      (mayúscula), no `'sin_clasificar'`.
+    - `downgrade()` no puede revertir el `ALTER TYPE ADD VALUE`:
+      Postgres no soporta `DROP VALUE` en un tipo enum — limitación de
+      Postgres documentada en el propio archivo de migración, no un
+      olvido. El resto del downgrade (columna `origen`, nullability)
+      sí es reversible.
+  - **Verificación real, SIN tocar `mineguard_db`** (la migración
+    sigue sin aplicarse ahí, a la espera de revisión): se clonó
+    `mineguard_db` completa a una base temporal y aislada
+    (`mineguard_test_lectura_manual`, mismo contenedor Docker, vía
+    `CREATE DATABASE ... TEMPLATE mineguard_db`), se le aplicó
+    `alembic upgrade head` (incluida esta migración nueva) ahí, y se
+    levantó una segunda instancia de uvicorn temporal en el puerto
+    8001 apuntando a esa base — el backend real en el puerto 8000
+    (apuntando a `mineguard_db`) nunca se detuvo ni se tocó. En el
+    navegador (frontend real de la rama, en el puerto 5173 de
+    siempre) se inyectó un interceptor de `window.fetch` por
+    `javascript_tool` que redirige `localhost:8000` → `localhost:8001`
+    solo para esa pestaña de prueba — el frontend en sí no se modificó
+    ni se reinició, y ningún usuario real pudo verse afectado. Con
+    login real como Trabajador contra esa instancia aislada:
+    - **Caso solo-gas**: se guardó la lectura #3618 con
+      `origen=MANUAL`, `temperatura`/`humedad`/`bateria`/
+      `error_predicho`/`gas_corregido` en `NULL`,
+      `nivel_alerta=SIN_CLASIFICAR` — mensaje en el frontend "guardada
+      sin corrección de modelo (datos incompletos)", confirmado igual
+      en la fila real de la BD.
+    - **Caso 4 variables completas**: se guardó la lectura #3619 con
+      `origen=MANUAL`, las 3 variables + `modelo_id=1` (el `ModeloML`
+      activo real), `gas_corregido=7999.75`,
+      `nivel_alerta=OPTIMO` — mensaje en el frontend "procesada con el
+      modelo ML — gas corregido: 7999.75 ppm, nivel Óptimo", igual en
+      la BD.
+    - Sin errores de consola en ninguno de los dos casos.
+    - Limpieza: se detuvo la instancia de uvicorn temporal (puerto
+      8001) y se eliminó la base `mineguard_test_lectura_manual`
+      completa (`DROP DATABASE`) — no quedó ningún dato de prueba
+      persistente en ningún lado. Verificado con `SELECT COUNT(*)`
+      total sobre `mineguard_db` que nunca cambió durante toda esta
+      tarea: `usuarios` (5), `solicitudes_cambio_punto_control` (2),
+      `puntos_control` (8), `telemetrias` (3557),
+      `bitacora_alertas` (2), `estaciones` (1), `modelos_ml` (1) — y
+      que su tabla `telemetrias` sigue sin la columna `origen` y con
+      `temperatura`/`humedad`/`bateria` en `NOT NULL` (la migración
+      sigue sin aplicarse ahí, tal como se pidió).
+  - **Frontend**: `ModalReportarLecturaManual.jsx` nuevo
+    (`frontend/src/components/alertas/`, junto a
+    `ModalReportarAlerta.jsx` — misma pantalla de Alertas, mismo caso
+    de uso de "trabajador en campo reportando algo"), botón "Reportar
+    lectura manual" agregado junto al de "Reportar alerta" en
+    `Alertas.jsx`. Selector de punto de control (reutiliza
+    `listarPuntosControl`, misma etiqueta "Punto X - Estación Y" de la
+    DECISIÓN anterior), Temp/Humedad/Bateria opcionales, Gas
+    obligatorio. Dos indicadores explícitos de si hubo corrección de
+    modelo o no (pedido por la tarea): un aviso en vivo mientras se
+    llena el formulario (cambia según si las 3 variables ya están
+    completas) y un banner de resultado tras enviar (verde si
+    `corregido_por_modelo`, ámbar si no, usando el campo de la
+    respuesta del backend en vez de recalcular la condición en el
+    frontend). El modal se queda abierto tras un envío exitoso (no se
+    cierra automáticamente ni dispara un recargo de la tabla de
+    alertas, a diferencia de `ModalReportarAlerta`) — un trabajador en
+    campo normalmente reporta varias lecturas seguidas de distintos
+    puntos, cerrar/reabrir el modal cada vez sería fricción
+    innecesaria; no toca ninguna alerta ni afecta `TablaAlertas`.
+    Nueva función `reportarLecturaManual` en `src/lib/api.js`, mismo
+    patrón que las demás.
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.telemetria import NivelAlerta
+from app.models.telemetria import NivelAlerta, OrigenLectura
 
 
 class IngestaArchivoRespuesta(BaseModel):
@@ -39,9 +39,37 @@ class TelemetriaResumen(BaseModel):
 
     id: int
     timestamp: datetime
-    temperatura: float
-    humedad: float
-    bateria: float
+    temperatura: float | None
+    humedad: float | None
+    bateria: float | None
     gas_crudo: float
     gas_corregido: float | None
     nivel_alerta: NivelAlerta
+    origen: OrigenLectura
+
+
+class LecturaManualSolicitud(BaseModel):
+    punto_control_id: int
+    temperatura: float | None = None
+    humedad: float | None = None
+    bateria: float | None = None
+    gas_crudo: float
+
+
+class LecturaManualRespuesta(BaseModel):
+    id: int
+    punto_control_id: int
+    timestamp: datetime
+    origen: OrigenLectura
+    temperatura: float | None
+    humedad: float | None
+    bateria: float | None
+    gas_crudo: float
+    error_predicho: float | None
+    gas_corregido: float | None
+    gas_corregido_porcentaje: float | None
+    nivel_alerta: NivelAlerta
+    # Indicador explicito pedido por la tarea: False cuando falto alguna de
+    # Temp/Humed/Bateria y por lo tanto no corrio el pipeline ML (ver
+    # DECISION en docs/PROJECT_CONTEXT.md).
+    corregido_por_modelo: bool
