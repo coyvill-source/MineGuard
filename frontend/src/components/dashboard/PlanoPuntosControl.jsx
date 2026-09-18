@@ -688,16 +688,29 @@ function PlanoPuntosControl({ puntos }) {
 
         {/* Tunel decorativo/esquematico - no es geometria real medida. Cada
             tramo lleva un trazo de "sombra" mas oscuro y ancho detras, y el
-            trazo emerald encima, mas delgado, para que se lea con volumen
+            trazo azul encima, mas delgado, para que se lea con volumen
             (galeria) en vez de una linea plana. Ramas primero (mas
             delgadas/tenues), tunel principal encima (mas grueso/opaco) para
-            que se lea como el eje estructural. */}
+            que se lea como el eje estructural.
+            DECISION (2026-09-18): antes era emerald (verde) - en pantalla
+            real se confundia con el verde del semaforo (nivel Optimo),
+            aunque eran tonos tecnicamente distintos. Cambiado a `mg-navy`
+            (azul oscuro de marca) en vez de `mg-accent` (el azul mas claro
+            que ya usa `MarcaEntrada` para el portal de "Entrada", unas
+            unidades mas abajo en este mismo archivo): el tunel pasa muy
+            cerca del punto "0" donde vive ese portal, y dos elementos en el
+            mismo azul ahi se habrian mezclado visualmente - mg-navy da
+            contraste de tono (oscuro vs. el mg-accent mas claro del portal)
+            sin salirse de la familia azul pedida. Mismo mg-navy-800 que ya
+            usa la linea de "Gas corregido" en GraficoHistorial.jsx, debajo
+            de este panel - refuerza el lenguaje visual compartido entre
+            ambos paneles (ver DECISION de unificacion visual). */}
         {estructuraTunel.ramas.map((rama) => (
           <path
             key={`${rama.key}-sombra`}
             d={rama.d}
             fill="none"
-            className="stroke-emerald-900/15"
+            className="stroke-mg-navy-900/15"
             strokeWidth={escala.radio * 0.27}
             strokeLinecap="round"
           />
@@ -707,7 +720,7 @@ function PlanoPuntosControl({ puntos }) {
             key={`${tramo.key}-sombra`}
             d={tramo.d}
             fill="none"
-            className="stroke-emerald-900/30"
+            className="stroke-mg-navy-900/30"
             strokeWidth={escala.radio * 0.52}
             strokeLinecap="round"
           />
@@ -717,7 +730,7 @@ function PlanoPuntosControl({ puntos }) {
             key={rama.key}
             d={rama.d}
             fill="none"
-            className="stroke-emerald-600/20"
+            className="stroke-mg-navy-700/20"
             strokeWidth={escala.radio * 0.15}
             strokeLinecap="round"
           />
@@ -727,7 +740,7 @@ function PlanoPuntosControl({ puntos }) {
             key={tramo.key}
             d={tramo.d}
             fill="none"
-            className="stroke-emerald-700/40"
+            className="stroke-mg-navy-800/40"
             strokeWidth={escala.radio * 0.34}
             strokeLinecap="round"
           />

@@ -19,21 +19,25 @@ const GROSOR_LINEA = 2.75
 // corregido en % de metano vive en 0-2% (Decreto 1886) - mezclarlo con las
 // otras 3 en el mismo eje lo aplanaria a una linea casi recta pegada a 0, asi
 // que va en su propio eje derecho. Colores tomados de la paleta de marca ya
-// existente (`mg-accent`/`mg-navy` de src/index.css) mas los 2 tonos "no
+// existente (`mg-accent`/`mg-navy` de src/index.css) mas los tonos "no
 // semaforo" ya precedentados en otras pantallas de este mismo proyecto
-// (emerald-700 del tunel decorativo en PlanoPuntosControl.jsx, purple-700
-// del badge "muteada" en TablaAlertas.jsx) - asi las 4 lineas se sienten
-// parte del mismo sistema visual en vez de los colores de ejemplo por
-// defecto de recharts (#8884d8/#82ca9d/...). Deliberadamente DISTINTOS de
-// la paleta semaforo (mg-safe/mg-alert/mg-danger, verde/amarillo/rojo) que
-// ya usa el Dashboard para nivel_alerta - estas son series de datos, no
+// (purple-700 del badge "muteada" en TablaAlertas.jsx) - asi las 4 lineas se
+// sienten parte del mismo sistema visual en vez de los colores de ejemplo
+// por defecto de recharts (#8884d8/#82ca9d/...). Deliberadamente DISTINTOS
+// de la paleta semaforo (mg-safe/mg-alert/mg-danger, verde/amarillo/rojo)
+// que ya usa el Dashboard para nivel_alerta - estas son series de datos, no
 // estados de alerta, usar esos colores aqui confundiria los dos
 // significados (mismo criterio ya aplicado en PlanoPuntosControl.jsx).
+// El gas corregido usa `mg-navy-800` - el mismo tono que ahora usa el tunel
+// principal decorativo del Plano (ver DECISION 2026-09-18 en
+// PlanoPuntosControl.jsx: antes emerald, cambiado por confundirse con el
+// semaforo) - un eco deliberado entre ambos paneles, ya que quedan uno
+// debajo del otro en la misma pantalla.
 const VARIABLES = [
   { clave: "temperatura", etiqueta: "Temperatura (°C)", color: "#2e75b6", eje: "izquierda" }, // mg-accent-500
-  { clave: "humedad", etiqueta: "Humedad (%)", color: "#047857", eje: "izquierda" }, // emerald-700 (tunel del Plano)
+  { clave: "humedad", etiqueta: "Humedad (%)", color: "#047857", eje: "izquierda" }, // emerald-700 (verde-azulado, distinto de mg-safe-500)
   { clave: "bateria", etiqueta: "Batería (%)", color: "#7e22ce", eje: "izquierda" }, // purple-700 (badge "muteada")
-  { clave: "gas_corregido_porcentaje", etiqueta: "Gas corregido (% CH4)", color: "#1f3864", eje: "derecha" }, // mg-navy-800
+  { clave: "gas_corregido_porcentaje", etiqueta: "Gas corregido (% CH4)", color: "#1f3864", eje: "derecha" }, // mg-navy-800 (mismo tono que el tunel del Plano)
 ]
 
 function formatearFechaISO(fecha) {
@@ -145,8 +149,8 @@ function GraficoHistorial({ puntos, token }) {
   const hayEjeIzquierdo = variablesActivas.some((v) => v.eje === "izquierda")
 
   return (
-    <div className="mt-6 rounded-2xl border border-mg-surface-100 bg-white p-4 shadow-lg shadow-mg-navy-900/5 sm:p-6">
-      <h2 className="text-lg font-semibold text-mg-navy-900">Histórico de lecturas</h2>
+    <div className="mt-6 rounded-2xl border border-mg-surface-100 bg-white p-4 shadow-lg shadow-mg-navy-900/5 ring-1 ring-mg-navy-900/5 sm:p-6">
+      <h2 className="text-lg font-bold text-mg-navy-900">Histórico de lecturas</h2>
       <p className="mt-1 text-sm text-mg-navy-700">
         Selecciona un punto de control y un rango de fechas para ver su comportamiento en el tiempo.
       </p>

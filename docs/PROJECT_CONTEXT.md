@@ -1557,6 +1557,72 @@ siguen guardando `origen=sensor` por default, sin necesitar tocarse.
     app. No se usaron esas credenciales; se limpió el formulario y se
     escribió la cuenta de prueba antes de enviar. Vale la pena revisar
     por qué ese perfil de Chrome tiene esa contraseña guardada.
+- DECISIÓN (2026-09-18): dos ajustes visuales tras revisar el Dashboard
+  con el Plano y el Gráfico histórico juntos en la misma pantalla
+  (hallazgo de pruebas manuales del usuario) - ambos en
+  `frontend/src/components/dashboard/`.
+  - **1. Túnel decorativo del Plano: de verde (emerald) a azul
+    (`mg-navy`)**. En pantalla real el emerald del túnel se confundía
+    con el verde del semáforo (nivel Óptimo), aunque eran tonos
+    técnicamente distintos (emerald vs. `mg-safe-500`). Cambiado en
+    `PlanoPuntosControl.jsx`: `stroke-emerald-900/15` → `stroke-mg-navy-900/15`
+    (sombra de ramas), `stroke-emerald-900/30` → `stroke-mg-navy-900/30`
+    (sombra principal), `stroke-emerald-600/20` → `stroke-mg-navy-700/20`
+    (ramas), `stroke-emerald-700/40` → `stroke-mg-navy-800/40`
+    (principal) — se mantiene exactamente la misma jerarquía de
+    grosor/opacidad ya lograda (ramas más delgadas/tenues, túnel
+    principal más grueso/opaco), solo cambió el tono.
+    - **`mg-navy`, no `mg-accent`, para evitar chocar con "Entrada"**:
+      `MarcaEntrada` (el portal sobre el punto "0") ya usa `mg-accent`
+      (azul más claro/vívido) y el túnel pasa justo por ahí — si el
+      túnel también fuera `mg-accent`, los dos elementos se habrían
+      mezclado en esa zona. `mg-navy` (azul oscuro) da contraste de
+      tono suficiente con `mg-accent` sin salirse de la familia "azul"
+      pedida. Verificado en navegador real con zoom sobre esa zona: el
+      túnel se lee como una línea oscura/mate claramente distinta del
+      portal de "Entrada" en azul vívido, y ninguno de los dos se
+      confunde con los marcadores verdes/amarillos/rojos del semáforo.
+  - **2. Unificación visual entre `PlanoPuntosControl` y
+    `GraficoHistorial`** (ahora uno debajo del otro en `/dashboard`,
+    ver DECISIÓN "se movió" más arriba):
+    - `GraficoHistorial.jsx` ganó `ring-1 ring-mg-navy-900/5` en su
+      contenedor — mismo anillo sutil que ya usa el panel del Plano,
+      para que ambos se lean como tarjetas de la misma familia visual
+      aunque el Plano mantenga su sombra más marcada (`shadow-xl`+
+      hover, documentado como intencional porque "es el elemento
+      visual más importante del dashboard" — no se igualó esa parte,
+      es jerarquía deliberada, no inconsistencia).
+    - El `<h2>` "Histórico de lecturas" pasó de `font-semibold` a
+      `font-bold`, igualando el único precedente de encabezado de
+      sub-sección ya existente en la app (`<h2 className="text-lg
+      font-bold text-mg-navy-900">` en `SeccionSolicitudesPendientes.jsx`).
+    - **Eco de color entre paneles**: con el cambio 1, `mg-navy-800`
+      quedó siendo el tono del túnel principal Y de la línea "Gas
+      corregido" en `GraficoHistorial` (ya elegido así antes, sin
+      relación con el túnel en ese momento) — ahora es una coincidencia
+      deliberada documentada en ambos archivos: el mismo azul oscuro de
+      marca aparece en el elemento "estructural" de cada panel (el eje
+      del túnel arriba, la variable de seguridad del gas abajo),
+      reforzando que comparten sistema visual. El comentario de
+      `GraficoHistorial.jsx` que justificaba el color de "Humedad"
+      (`emerald-700`) por "ser el mismo tono del túnel" quedó
+      desactualizado tras el cambio 1 y se corrigió — Humedad sigue en
+      emerald-700 por mérito propio (distinto de `mg-safe-500`), ya no
+      por relación con el túnel.
+    - No se tocó el radio de esquina (`rounded-2xl`, ya compartido por
+      ambos), el `border-mg-surface-100` (ya compartido), ni el ritmo
+      de espaciado entre secciones del Dashboard (`mt-6`/`mt-3` ya
+      establecido) — se evaluaron y ya eran consistentes entre ambos
+      paneles antes de este ajuste, no hacía falta tocarlos.
+  - Verificado en navegador real (usuario trabajador de prueba):
+    captura con Plano + Histórico juntos confirma el túnel en azul
+    oscuro (no verde, no confundible con el semáforo ni con
+    "Entrada"), y ambos paneles leyéndose como tarjetas de un mismo
+    sistema (mismo radio, mismo borde, mismo anillo sutil, mismo peso
+    de encabezado donde aplica). Sin errores de consola. Usuario de
+    prueba eliminado al terminar; verificado con `SELECT COUNT(*)`
+    total que ninguna tabla cambió (cambio puramente visual, sin
+    endpoints nuevos).
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.
