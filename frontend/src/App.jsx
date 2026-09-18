@@ -6,6 +6,7 @@ import Registro from "./pages/Registro"
 import Dashboard from "./pages/Dashboard"
 import PuntosControl from "./pages/PuntosControl"
 import Alertas from "./pages/Alertas"
+import Estadisticas from "./pages/Estadisticas"
 import OlvidePassword from "./pages/OlvidePassword"
 import ResetPassword from "./pages/ResetPassword"
 import CompletarRegistroGoogle from "./pages/CompletarRegistroGoogle"
@@ -89,6 +90,7 @@ function App() {
       />
       <Route path="/puntos-control" element={<PuntosControl />} />
       <Route path="/alertas" element={<Alertas />} />
+      <Route path="/estadisticas" element={<Estadisticas />} />
       <Route path="/olvide-password" element={<OlvidePassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/completar-registro-google" element={<CompletarRegistroGoogle />} />

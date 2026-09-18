@@ -22,6 +22,14 @@ PPM_POR_PORCENTAJE = 10_000
 LIMITE_OPTIMO_PORCENTAJE = 0.9
 LIMITE_CRITICO_PORCENTAJE = 1.5
 
+# Umbral de "bateria baja" para la metrica de salud de sensores
+# (GET /api/estadisticas/resumen). Valor por defecto sin confirmar con el
+# equipo de HSE/datos (a diferencia de los limites de gas de arriba, que si
+# vienen del Decreto 1886) - PENDIENTE (no construir ahora, solo
+# documentado): deberia volverse configurable desde el panel de
+# administrador en una futura tarea, igual que los limites de gas.
+UMBRAL_BATERIA_BAJA_PORCENTAJE = 20.0
+
 
 def ppm_a_porcentaje(ppm: float) -> float:
     return ppm / PPM_POR_PORCENTAJE

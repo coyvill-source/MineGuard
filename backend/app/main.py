@@ -5,6 +5,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.api.alertas import router as alertas_router
 from app.api.auth import router as auth_router
 from app.api.auth_google import router as auth_google_router
+from app.api.estadisticas import router as estadisticas_router
 from app.api.puntos_control import router as puntos_control_router
 from app.api.telemetria import router as telemetria_router
 from app.api.usuarios import router as usuarios_router
@@ -31,6 +32,7 @@ app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
 app.include_router(alertas_router, prefix="/api/alertas")
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(auth_google_router, prefix="/api/auth")
+app.include_router(estadisticas_router, prefix="/api/estadisticas")
 app.include_router(puntos_control_router, prefix="/api/puntos-control")
 app.include_router(telemetria_router, prefix="/api/telemetria")
 app.include_router(usuarios_router, prefix="/api/usuarios")

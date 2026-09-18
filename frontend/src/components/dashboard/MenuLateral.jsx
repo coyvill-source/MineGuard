@@ -6,6 +6,7 @@ function construirOpciones(rol) {
     { id: "plano", etiqueta: "Plano", to: "/dashboard", habilitado: true },
     { id: "puntos-control", etiqueta: "Puntos de Control", to: "/puntos-control", habilitado: true },
     { id: "alertas", etiqueta: "Alertas", to: "/alertas", habilitado: true },
+    { id: "estadisticas", etiqueta: "Estadísticas", to: "/estadisticas", habilitado: true },
   ]
 
   if (rol === "supervisor" || rol === "admin") {

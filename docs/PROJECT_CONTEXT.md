@@ -1623,6 +1623,126 @@ siguen guardando `origen=sensor` por default, sin necesitar tocarse.
     prueba eliminado al terminar; verificado con `SELECT COUNT(*)`
     total que ninguna tabla cambió (cambio puramente visual, sin
     endpoints nuevos).
+- DECISIÓN (2026-09-18): nueva pantalla "Estadísticas" (`/estadisticas`,
+  cualquier rol autenticado — mismo patrón de acceso que Alertas/Puntos
+  de Control, no requiere Supervisor/Admin) con 4 métricas de solo
+  lectura sobre la operación completa. Backend en
+  `backend/app/api/estadisticas.py` (nuevo router,
+  `GET /api/estadisticas/resumen`, rol mínimo trabajador) + schemas en
+  `schemas/estadistica.py`; frontend en `pages/Estadisticas.jsx` +
+  `components/estadisticas/GraficoEstadoActual.jsx`.
+  - **Una sola respuesta para las 4 métricas** (pedido explícito, evita
+    4 llamadas desde el frontend). Las métricas 1 y 4 comparten la
+    MISMA consulta de base — se extrajo `construir_consulta_estado_actual()`
+    de `puntos_control.py` (antes inline dentro de
+    `obtener_estado_actual`) a una función reutilizable, para no
+    duplicar el `DISTINCT ON` en dos archivos; `GET
+    /api/puntos-control/estado-actual` sigue funcionando exactamente
+    igual, solo cambió de dónde saca la consulta.
+  - **Métrica 1 — Estado actual de riesgo**: conteo de puntos ACTIVOS
+    por `nivel_alerta` de su última lectura (mismo criterio que
+    `estado-actual`). `SIN_CLASIFICAR` (lectura manual con datos
+    incompletos, ver DECISIÓN de "lectura manual") se agrupa junto con
+    "sin ninguna lectura" en el bucket `sin_datos` — mismo fallback que
+    ya usa el frontend (`PlanoPuntosControl.jsx`,
+    `ESTILO_POR_NIVEL[...] ?? ESTILO_SIN_DATOS`), aplicado ahora
+    también en el backend para esta métrica: ambos casos significan
+    "no se puede evaluar el riesgo con confianza ahora mismo".
+  - **Métrica 2 — Ranking de puntos problemáticos**: `COUNT` de
+    lecturas HISTÓRICAS (no solo la última) en nivel `ALERTA` o
+    `CRITICO`, agrupado por `punto_id`, top 10 descendente
+    (`LIMITE_RANKING` en `estadisticas.py` — se eligió el techo del
+    rango pedido "5-10" para dar más contexto). Incluye puntos activos
+    e inactivos (el historial no deja de existir si el punto se
+    desactivó después) — se muestra el estado Activo/Inactivo en la
+    tabla para que quede claro.
+  - **Métrica 3 — Tiempo promedio de resolución**: `AVG(fecha_actualizacion
+    - fecha_creacion)` en Postgres sobre alertas `RESUELTA` (resta de
+    dos `timestamptz` da un `INTERVAL`, `AVG` de un `INTERVAL` es
+    válido en Postgres) — un solo `scalar()`, no se traen las filas a
+    Python para promediar a mano. `fecha_actualizacion` se actualiza en
+    CADA transición de estado (mutear/escalar/resolver, ver
+    `api/alertas.py`), pero para una alerta que terminó en `RESUELTA`
+    siempre refleja el momento de ESA resolución (la última transición
+    posible, ya que `RESUELTA` es terminal — no se puede mutear/
+    escalar/resolver de nuevo, responde 409). `promedio_minutos` es
+    `None` cuando `cantidad_resueltas` es 0 (AVG sobre 0 filas es NULL
+    en SQL) — el frontend distingue explícitamente ese caso de "0
+    minutos" con un mensaje ("Todavía no hay alertas resueltas...").
+  - **Métrica 4 — Salud de sensores (batería baja)**: puntos activos
+    cuya última lectura tiene `bateria < UMBRAL_BATERIA_BAJA_PORCENTAJE`.
+    Nuevo umbral `UMBRAL_BATERIA_BAJA_PORCENTAJE = 20.0` en
+    `app/core/umbrales.py` (junto a `LIMITE_OPTIMO_PORCENTAJE`/
+    `LIMITE_CRITICO_PORCENTAJE` ya existentes, mismo patrón de
+    comentario "PENDIENTE... debería volverse configurable desde el
+    panel de administrador") — no un número suelto en
+    `estadisticas.py`. Se excluyen puntos cuya última lectura tiene
+    `bateria` en `NULL` (lectura manual solo-gas, ver DECISIÓN de
+    "lectura manual") — sin dato de batería no se puede evaluar, omitir
+    es más honesto que asumir que está baja. El umbral viaja en la
+    respuesta (`umbral_bateria_baja_porcentaje`) para que el frontend
+    arme su mensaje ("por debajo de X%") sin hardcodear el mismo número
+    en un segundo lugar.
+  - **Frontend — reutilización explícita del sistema visual existente**
+    (requisito explícito de la tarea, verificado componente por
+    componente antes de darla por terminada):
+    - Los 4 colores del gráfico de dona (métrica 1) son los mismos
+      valores hex EXACTOS de `LEYENDA`/`ESTILO_POR_NIVEL`
+      (`#2e9e5b`/`#e0a800`/`#c0392b` de `src/index.css`, más
+      `slate-400` `#94a3b8` ya usado para "sin datos" en el Plano) — no
+      una paleta nueva, ni siquiera una reconstruida a mano con los
+      mismos nombres de Tailwind (se copiaron los hex reales).
+    - El gráfico de dona (`GraficoEstadoActual.jsx`, recharts
+      `PieChart`/`Pie`/`Cell`) usa el mismo `Tooltip` con esquinas
+      redondeadas (`contentStyle={{ borderRadius: 12, borderColor:
+      "#eaf1f8", fontSize: 13 }}`) ya establecido en
+      `GraficoHistorial.jsx` — mismo `contentStyle`/`labelStyle`
+      copiados literalmente, no reinventados.
+    - Las 4 tarjetas comparten una sola constante `CLASE_TARJETA` en
+      `Estadisticas.jsx` con el mismo "recipe" ya usado por
+      `PlanoPuntosControl.jsx`/`GraficoHistorial.jsx`: `rounded-2xl
+      border border-mg-surface-100 bg-white shadow-lg
+      shadow-mg-navy-900/5 ring-1 ring-mg-navy-900/5` — ningún radio,
+      sombra o borde nuevo.
+    - Las 2 tablas (ranking y batería baja) copian el patrón exacto de
+      `TablaPuntosControl.jsx`: mismo `thead` (`text-xs font-semibold
+      tracking-wide text-mg-navy-700/70 uppercase`), mismo badge
+      Activo/Inactivo (`bg-mg-safe-500/10 text-mg-safe-500` /
+      `bg-slate-200 text-slate-600`) reutilizado tal cual, sin
+      reinventar el estado.
+    - Encabezados `<h2 className="text-lg font-bold text-mg-navy-900">`
+      — mismo peso/tono que el precedente ya establecido en
+      `SeccionSolicitudesPendientes.jsx` (ver DECISIÓN de unificación
+      visual, más arriba) y ahora también en `GraficoHistorial.jsx`.
+    - Estados vacíos (ranking sin lecturas problemáticas, "sin
+      datos" del donut, batería baja sin puntos) reutilizan el mismo
+      `rounded-lg border border-dashed border-mg-surface-100
+      bg-mg-surface-50` ya usado en `GraficoHistorial.jsx`.
+    - Nuevo hook `useEstadisticas.js` en `src/hooks/`, mismo patrón
+      exacto de `usePuntosControl.js` (fetch al montar + `recargar()`,
+      sin polling — esta pantalla no necesita actualizarse en vivo como
+      el Dashboard).
+    - `MenuLateral.jsx`: nueva opción "Estadísticas" habilitada para
+      TODOS los roles (sin condición de rol, a diferencia de
+      "Aprobaciones"/"Gestión de Usuarios" que sí filtran por rol) —
+      coherente con que el endpoint solo exige rol mínimo trabajador.
+  - Verificado en navegador real con datos reales de producción (sin
+    datos de prueba, tal como pidió la tarea): usuario trabajador de
+    prueba únicamente para iniciar sesión (sin generar ninguna otra
+    fila — el endpoint es de solo lectura). Las 4 métricas mostraron
+    valores reales coherentes: estado actual 3 óptimo/2 alerta/2
+    crítico/0 sin datos (7 puntos activos); ranking con el punto más
+    problemático en 985 lecturas históricas en alerta/crítico; tiempo
+    promedio de resolución 0.6 min basado en 1 alerta resuelta (dato
+    real, no inventado); batería baja sin resultados hoy, mostrando
+    correctamente el mensaje de estado vacío en vez de una tabla vacía
+    confusa. Comparación visual explícita contra Plano/GraficoHistorial
+    confirmó el mismo sistema (colores, sombras, bordes, tipografía) -
+    coherente por construcción, ya que las clases se copiaron
+    literalmente de esos componentes, no se recrearon a mano. Sin
+    errores de consola. Usuario de prueba eliminado al terminar;
+    verificado con `SELECT COUNT(*)` total que ninguna tabla cambió
+    (endpoint de solo lectura). 76/76 pruebas de backend en verde.
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.

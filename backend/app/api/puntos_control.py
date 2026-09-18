@@ -187,16 +187,13 @@ async def crear_punto_control(
     return punto_control
 
 
-@router.get("/estado-actual", response_model=list[PuntoControlEstadoActual])
-async def obtener_estado_actual(
-    db: Annotated[AsyncSession, Depends(get_db)],
-    _actor: Annotated[Usuario, Depends(requiere_rol(RolUsuario.TRABAJADOR))],
-) -> list[PuntoControlEstadoActual]:
-    # DISTINCT ON (punto_id), ordenado por timestamp descendente: trae la
-    # lectura mas reciente de cada punto en UNA sola consulta a la BD (sin
-    # loop por punto). Declarada antes de /{punto_control_id} por la misma
-    # razon que /solicitudes: Starlette haria matching de "estado-actual"
-    # como valor de {punto_control_id} si el patron generico fuera primero.
+def construir_consulta_estado_actual():
+    """Puntos activos + su lectura mas reciente (o None), en UNA sola
+    consulta (DISTINCT ON punto_id, sin loop por punto). Reutilizada por
+    GET /estado-actual y por GET /api/estadisticas/resumen (metricas
+    "estado actual de riesgo" y "salud de sensores"/bateria baja usan
+    exactamente este mismo criterio - ver docs/PROJECT_CONTEXT.md), para no
+    duplicar la construccion del DISTINCT ON en dos archivos."""
     ultima_por_punto = (
         select(Telemetria)
         .distinct(Telemetria.punto_id)
@@ -204,14 +201,23 @@ async def obtener_estado_actual(
     ).subquery()
     ultima_telemetria = aliased(Telemetria, ultima_por_punto)
 
-    consulta = (
+    return (
         select(PuntoControl, ultima_telemetria)
         .outerjoin(ultima_telemetria, ultima_telemetria.punto_id == PuntoControl.id)
         .where(PuntoControl.activo.is_(True))
         .order_by(PuntoControl.id)
     )
 
-    resultado = await db.execute(consulta)
+
+@router.get("/estado-actual", response_model=list[PuntoControlEstadoActual])
+async def obtener_estado_actual(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _actor: Annotated[Usuario, Depends(requiere_rol(RolUsuario.TRABAJADOR))],
+) -> list[PuntoControlEstadoActual]:
+    # Declarada antes de /{punto_control_id} por la misma razon que
+    # /solicitudes: Starlette haria matching de "estado-actual" como valor
+    # de {punto_control_id} si el patron generico fuera primero.
+    resultado = await db.execute(construir_consulta_estado_actual())
 
     return [
         PuntoControlEstadoActual(

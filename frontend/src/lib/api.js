@@ -232,3 +232,9 @@ export function obtenerHistorialTelemetria(token, { puntoControlId, desde, hasta
     headers: { Authorization: `Bearer ${token}` },
   })
 }
+
+export function obtenerEstadisticasResumen(token) {
+  return request("/api/estadisticas/resumen", {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
