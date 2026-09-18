@@ -111,7 +111,7 @@ function ModalReportarAlerta({ token, onCerrar, onExito }) {
   }
 
   return (
-    <Modal onCerrar={onCerrar} titulo="Reportar alerta manual">
+    <Modal onCerrar={onCerrar} titulo="Reportar alerta">
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         {error && (
           <div className="rounded-lg border border-mg-danger-500/30 bg-mg-danger-500/10 px-4 py-3 text-sm font-medium text-mg-danger-500">

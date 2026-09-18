@@ -1223,6 +1223,22 @@ siguen guardando `origen=sensor` por default, sin necesitar tocarse.
     innecesaria; no toca ninguna alerta ni afecta `TablaAlertas`.
     Nueva función `reportarLecturaManual` en `src/lib/api.js`, mismo
     patrón que las demás.
+- ACLARACIÓN DE NOMENCLATURA (2026-09-18): tras agregar "Reportar
+  lectura manual" (DECISIÓN anterior), el modal de `ModalReportarAlerta.jsx`
+  seguía titulado "Reportar alerta manual" — resabio de antes de que
+  existiera esa segunda funcionalidad, y ahora generaba confusión
+  entre ambas (¿cuál de las dos es "la manual"?). Corregido a
+  simplemente "Reportar alerta" (el botón que lo abre ya decía
+  "Reportar alerta", sin "manual" — solo el título interno del modal
+  estaba desactualizado). Ningún otro texto ni comportamiento de ese
+  modal cambió. Los dos flujos de la pantalla de Alertas quedan así
+  nombrados sin ambigüedad: **"Reportar alerta"** (reporta una alerta
+  manual sobre una telemetría ya existente, vía `POST /api/alertas`)
+  vs. **"Reportar lectura manual"** (reporta una lectura nueva de
+  campo con instrumento portátil, vía
+  `POST /api/telemetria/lectura-manual`) — dos conceptos de dominio
+  distintos (alerta vs. telemetría) que coincidían en compartir la
+  palabra "manual" en su fraseo antes de esta aclaración.
 
 ## Convenciones de desarrollo
 - Todo se construye módulo por módulo, no todo de una vez.
